@@ -1,0 +1,11 @@
+{
+  "name": "ab-helpers",
+  "version": "1.0.0",
+  "description": "",
+  "author": "jeremy.dube.dev@gmail.com",
+  "dependencies": {
+    "@actual-app/api": "^25.11.0",
+    "dotenv": "^16.4.5",
+    "jsdom": "^24.1.1"
+  }
+}
