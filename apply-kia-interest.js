@@ -1,5 +1,5 @@
-const api = require("@actual-app/api");
-const {
+import api from "./api.js";
+import {
   closeBudget,
   ensurePayee,
   getAccountBalance,
@@ -9,10 +9,11 @@ const {
   showPercent,
   applyBankPayment,
   fromCents,
-} = require("./utils");
-require("dotenv").config();
+  isMainModule,
+} from "./utils.js";
+import "dotenv/config";
 
-(async () => {
+export const applyKiaInterest = async () => {
   const weeklyRate = 0.00133978648017598;
 
   await openBudget();
@@ -79,4 +80,15 @@ require("dotenv").config();
   }
 
   await closeBudget();
-})();
+};
+
+if (isMainModule(import.meta.url)) {
+  console.log("Running apply-kia-interest.js directly");
+
+  applyKiaInterest()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
+}

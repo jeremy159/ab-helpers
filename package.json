@@ -3,9 +3,12 @@
   "version": "1.0.0",
   "description": "",
   "author": "jeremy.dube.dev@gmail.com",
+  "type": "module",
   "dependencies": {
     "@actual-app/api": "^25.11.0",
+    "cron-parser": "^5.4.0",
     "dotenv": "^16.4.5",
-    "jsdom": "^24.1.1"
+    "jsdom": "^24.1.1",
+    "node-cron": "^4.2.1"
   }
 }

@@ -1,24 +1,28 @@
-# Use an official Node.js runtime as a parent image
-FROM node:22
+ARG NODE_VERSION=20.19.0
 
-# Don't run as root
-USER node
+FROM node:${NODE_VERSION}-alpine AS build_image
 
-# Set the working directory in the container
 WORKDIR /usr/src/app
 
-# Create the cache directory
-RUN mkdir -p ./cache && chown node:node ./cache
+COPY package*.json ./
 
-# Copy the current directory contents into the container at /usr/src/app
-COPY --chown=node:node . .
+RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
-# Install any needed packages specified in package.json
-RUN npm install && npm update
-# Define environment variable
+COPY . .
+
+FROM node:${NODE_VERSION}-alpine AS runner_image
+
+WORKDIR /usr/src/app
+
+COPY --from=build_image /usr/src/app/node_modules ./node_modules
+ADD . .
+ADD package*.json ./
+
+
+RUN chmod +x index-cron.js
+
 ENV NODE_ENV=production
-# Allow self-signed SSL certs
-ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 
-# Run the app when the container launches
-ENTRYPOINT ["tail", "-f", "/dev/null"]
+# Run the application.
+CMD ["node", "index-cron.js"]

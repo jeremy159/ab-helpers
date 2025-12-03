@@ -1,5 +1,5 @@
-const api = require("@actual-app/api");
-const {
+import api from "./api.js";
+import {
   closeBudget,
   ensurePayee,
   getAccountBalance,
@@ -9,10 +9,11 @@ const {
   showPercent,
   applyBankPayment,
   fromCents,
-} = require("./utils");
-require("dotenv").config();
+  isMainModule,
+} from "./utils.js";
+import "dotenv/config";
 
-(async () => {
+export const applyMortgageInterest = async () => {
   const monthlyRate = 0.003543453216552734375;
 
   await openBudget();
@@ -80,4 +81,15 @@ require("dotenv").config();
   }
 
   await closeBudget();
-})();
+};
+
+if (isMainModule(import.meta.url)) {
+  console.log("Running apply-mortgage-interest.js directly");
+
+  applyMortgageInterest()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
+}
