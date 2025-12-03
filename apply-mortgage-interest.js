@@ -8,6 +8,7 @@ const {
   openBudget,
   showPercent,
   applyBankPayment,
+  fromCents,
 } = require("./utils");
 require("dotenv").config();
 
@@ -37,7 +38,7 @@ require("dotenv").config();
 
         const transactions = await getTransactions(account);
         const lastTransaction = transactions[0];
-        const payment = lastTransaction.amount / 100;
+        const payment = lastTransaction.amount;
         const interestTransactionDate = new Date(lastTransaction.date);
         const paymentDate = interestTransactionDate.toISOString().split("T")[0];
 
@@ -55,11 +56,13 @@ require("dotenv").config();
         interestRate = showPercent(interestRate);
 
         console.log(`== ${account.name} ==`);
-        console.log(` -> Balance:  ${balance}`);
+        console.log(` -> Balance:  ${fromCents(balance)}`);
         console.log(`      as of ${cutoff.toISOString().split("T")[0]}`);
         console.log(` -> Payment on:   ${paymentDate}`);
-        console.log(` -> Interest: ${compoundedInterest} (${interestRate})`);
-        console.log(` -> New Balance: ${newBalance}`);
+        console.log(
+          ` -> Interest: ${fromCents(compoundedInterest)} (${interestRate})`
+        );
+        console.log(` -> New Balance: ${fromCents(newBalance)}`);
 
         if (compoundedInterest) {
           await api.importTransactions(account.id, [

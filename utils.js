@@ -212,28 +212,23 @@ const Utils = {
   },
 
   applyBankPayment: function (previousBalance, payment, rate = weeklyRate) {
-    const prevD = Utils.fromCents(previousBalance);
-
-    const absPrev = Math.abs(prevD);
-    const interestAbs = Utils.round2(absPrev * rate); // positive dollar amount
+    const absPrev = Math.abs(previousBalance);
+    const interestAbs = Math.floor(absPrev * rate);
 
     let newBalanceD;
-    if (prevD >= 0) {
-      newBalanceD = Utils.round2(prevD + interestAbs - papaymentyD);
+    if (previousBalance >= 0) {
+      newBalanceD = previousBalance + interestAbs - payment;
     } else {
-      newBalanceD = Utils.round2(prevD - interestAbs + payment);
+      newBalanceD = previousBalance - interestAbs + payment;
     }
 
-    const interestSignedD = prevD < 0 ? -interestAbs : interestAbs;
+    const interestSignedD = previousBalance < 0 ? -interestAbs : interestAbs;
 
-    const principalAppliedD = Utils.round2(
-      Math.abs(prevD) - Math.abs(newBalanceD)
-    );
-
+    const principalAppliedD = Math.abs(previousBalance) - Math.abs(newBalanceD);
     return {
-      interest: Utils.toCents(interestSignedD),
-      principal: Utils.toCents(principalAppliedD),
-      newBalance: Utils.toCents(newBalanceD),
+      interest: interestSignedD,
+      principal: principalAppliedD,
+      newBalance: newBalanceD,
     };
   },
 };
