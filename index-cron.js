@@ -27,8 +27,8 @@ const getNextRun = (cronExpression, tz = timezone) => {
   };
 };
 
-// Every Thursday at 8 AM
-const weeklyCronExpression = "0 8 * * 4";
+// Every Thursday at 9 AM
+const weeklyCronExpression = "0 9 * * 4";
 
 const weeklyNext = getNextRun(weeklyCronExpression);
 console.info("Next weekly run:");
@@ -49,8 +49,8 @@ cron.schedule(
   }
 );
 
-// Every 18th of the month at 8 AM
-const monthlyCronExpression = "0 8 18 * *";
+// Every 18th of the month at 9 AM
+const monthlyCronExpression = "0 9 18 * *";
 
 const monthlyNext = getNextRun(monthlyCronExpression);
 console.info("Next monthly run:");
