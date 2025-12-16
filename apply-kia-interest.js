@@ -50,7 +50,8 @@ export const applyKiaInterest = async () => {
         const { interest: compoundedInterest, newBalance } = applyBankPayment(
           balance,
           payment,
-          weeklyRate
+          weeklyRate,
+          false
         );
 
         interestRate = showPercent(interestRate);
@@ -64,6 +65,7 @@ export const applyKiaInterest = async () => {
         );
         console.log(` -> New Balance: ${fromCents(newBalance)}`);
 
+        // TODO: Could it be possible to instead modify the existing transaction and create a split one which includes interest/capital portion?
         if (compoundedInterest) {
           await api.importTransactions(account.id, [
             {

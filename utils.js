@@ -222,10 +222,13 @@ export const toCents = (x) => {
 export const applyBankPayment = (
   previousBalance,
   payment,
-  rate = weeklyRate
+  rate = weeklyRate,
+  round = true
 ) => {
   const absPrev = Math.abs(previousBalance);
-  const interestAbs = Math.floor(absPrev * rate);
+  const interestAbs = round
+    ? Math.round(absPrev * rate)
+    : Math.floor(absPrev * rate);
 
   let newBalanceD;
   if (previousBalance >= 0) {
