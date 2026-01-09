@@ -30,6 +30,9 @@ export const openBudget = async () => {
   } else {
     await api.downloadBudget(sync_id);
   }
+
+  console.log("syncing cached budget file");
+  await api.sync();
 };
 
 export const closeBudget = async () => {
