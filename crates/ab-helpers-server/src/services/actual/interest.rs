@@ -83,13 +83,13 @@ impl<C> InterestService<C> {
     }
 }
 
-pub trait ActualClient:
+trait ActualClientBound:
     actual::AccountRequests + actual::TransactionRequests + Send + Sync {}
 
-impl<T> ActualClient for T where
+impl<T> ActualClientBound for T where
     T: actual::AccountRequests + actual::TransactionRequests + Send + Sync {}
 
-impl<C: ActualClient + 'static> InterestService<C> {
+impl<C: ActualClientBound + 'static> InterestService<C> {
     pub async fn apply(&self) -> BudgetizeResult<InterestOutcome> {
         // 1. Find account by ID
         let accounts = self.client.list_accounts().await.map_err(AppError::from_actual)?;
