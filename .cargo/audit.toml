@@ -1,0 +1,8 @@
+[advisories]
+ignore = [
+    # rsa is pulled in transitively by sqlx-mysql, which appears in Cargo.lock
+    # because the sqlx meta-crate lists it as an optional dependency. We only
+    # enable the `postgres` feature, so sqlx-mysql is never actually compiled.
+    # No fix is available upstream; revisit when rsa publishes a patched release.
+    "RUSTSEC-2023-0071",
+]

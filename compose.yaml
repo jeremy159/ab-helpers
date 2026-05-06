@@ -1,0 +1,33 @@
+name: budgetize
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      BUDGETIZE_ENVIRONMENT: "staging"
+    depends_on:
+      - postgres
+      - redis
+  postgres:
+    image: postgres:16
+    restart: always
+    ports:
+      - 5432:5432
+    volumes:
+      - db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: "password"
+      POSTGRES_USER: "postgres"
+      POSTGRES_DB: budgetize
+  redis:
+    image: "redis:7"
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - redis:/data
+volumes:
+  db:
+  redis:
+    driver: local

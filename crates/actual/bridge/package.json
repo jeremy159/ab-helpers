@@ -1,0 +1,17 @@
+{
+  "name": "actual-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Tiny non-interactive bridge over @actual-app/api used by the Rust `actual` crate.",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "list-accounts": "node index.js list-accounts --json '{}'"
+  },
+  "dependencies": {
+    "@actual-app/api": "^25.5.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

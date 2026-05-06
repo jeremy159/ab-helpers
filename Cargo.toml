@@ -1,0 +1,43 @@
+[workspace]
+members = [
+    "crates/*"
+]
+resolver = "2"
+
+[workspace.package]
+rust-version = "1.94"
+authors = ["Jeremy Dube <jeremy.dube.dev@gmail.com>"]
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[profile.dev]
+# Disabling debug info speeds up builds a bunch,
+# and we don't rely on it for debugging that much.
+debug = 0
+
+[profile.release]
+incremental = true
+debug = 0
+
+[workspace.dependencies]
+# Local Crates
+budgetize-domain = { path = "./crates/budgetize-domain" }
+db-postgres = { path = "./crates/db-postgres" }
+db-redis = { path = "./crates/db-redis" }
+budgetize-server = { path = "./crates/budgetize-server" }
+actual = { path = "./crates/actual" }
+
+# Non-Local Crates
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "macros", "uuid", "chrono", "migrate", "json"] }
+fred = { version = "9" }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+anyhow = { version = "1", features = ["backtrace"] }
+thiserror = "2"
+uuid = { version = "1", features = ["serde", "v4"] }
+async-trait = "0.1"
+tracing = "0.1"
+futures = "0.3"
+itertools = "0.13"
