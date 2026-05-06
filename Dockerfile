@@ -1,28 +1,32 @@
-ARG NODE_VERSION=20.19.0
+# Stage 1: compile Rust
+FROM rust:1.94-bookworm AS rust-builder
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ ./crates/
+RUN cargo build --release -p ab-helpers-cli
 
-FROM node:${NODE_VERSION}-alpine AS build_image
-
-WORKDIR /usr/src/app
-
-COPY package*.json ./
-
-RUN npm install --omit=dev
+# Stage 2: install Node bridge deps
+FROM node:20-alpine AS node-setup
+WORKDIR /bridge
+COPY crates/actual/bridge/package*.json ./
 RUN npm ci --omit=dev
 
-COPY . .
+# Stage 3: runtime
+FROM debian:bookworm-slim AS runner
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
-FROM node:${NODE_VERSION}-alpine AS runner_image
-
-WORKDIR /usr/src/app
-
-COPY --from=build_image /usr/src/app/node_modules ./node_modules
-ADD . .
-ADD package*.json ./
-
-
-RUN chmod +x index-cron.js
+COPY --from=rust-builder /build/target/release/abh /usr/local/bin/abh
+COPY --from=node-setup /bridge/node_modules /app/bridge/node_modules
+COPY crates/actual/bridge/index.js /app/bridge/index.js
 
 ENV NODE_ENV=production
+ENV ACTUAL_DATA_DIR=/data
+ENV ABH_ENVIRONMENT=production
+ENV ABH__ACTUAL__BRIDGE_SCRIPT=/app/bridge/index.js
 
-# Run the application.
-CMD ["node", "index-cron.js"]
+VOLUME ["/data"]
+
+CMD ["abh", "daemon"]
