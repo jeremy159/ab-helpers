@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Account information returned by the bridge.
 ///
-/// Mirrors `budgetize_domain::ActualAccount` but lives in the client crate to
+/// Mirrors `ab_helpers_domain::ActualAccount` but lives in the client crate to
 /// keep the wire format independent of the domain model.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Account {

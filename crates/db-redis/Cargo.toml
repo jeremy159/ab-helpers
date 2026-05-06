@@ -7,7 +7,7 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
-budgetize-domain.workspace = true
+ab-helpers-domain.workspace = true
 fred.workspace = true
 tracing.workspace = true
 async-trait.workspace = true

@@ -1,0 +1,28 @@
+[package]
+name = "ab-helpers-cli"
+version = "0.0.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "abh"
+path = "src/main.rs"
+
+[dependencies]
+ab-helpers-domain.workspace = true
+ab-helpers-server.workspace = true
+actual.workspace = true
+
+anyhow.workspace = true
+tokio.workspace = true
+clap = { version = "4", features = ["derive"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+chrono.workspace = true
+chrono-tz.workspace = true
+tokio-cron-scheduler.workspace = true
+cron.workspace = true
+serde.workspace = true
+serde_json.workspace = true

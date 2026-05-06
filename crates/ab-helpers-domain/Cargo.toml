@@ -1,0 +1,25 @@
+[package]
+name = "ab-helpers-domain"
+version = "0.1.0"
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+testutils = ["dep:mockall", "dep:fake", "dep:rand"]
+
+[dependencies]
+async-trait.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+fred.workspace = true
+
+mockall = { version = "0.13", optional = true }
+fake = { version = "3", optional = true, features = ["chrono", "derive", "uuid"] }
+rand = { version = "0.8", optional = true }

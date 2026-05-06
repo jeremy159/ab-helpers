@@ -18,7 +18,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "io-util", "macros", "rt"] }
 tracing.workspace = true
 
-budgetize-domain.workspace = true
+ab-helpers-domain.workspace = true
 
 mockall = { version = "0.13", optional = true }
 
