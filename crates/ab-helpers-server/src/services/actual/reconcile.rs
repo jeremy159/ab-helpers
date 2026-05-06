@@ -150,6 +150,12 @@ mod tests {
         async fn get_account_balance(&self, _id: &str) -> actual::ActualResult<i64> {
             Ok(self.balance_cents)
         }
+        async fn get_last_transaction(&self, _id: &str) -> actual::ActualResult<actual::LastTransaction> {
+            unimplemented!("not needed for reconcile tests")
+        }
+        async fn ensure_payee(&self, _name: &str) -> actual::ActualResult<String> {
+            unimplemented!("not needed for reconcile tests")
+        }
     }
 
     #[async_trait]
@@ -162,6 +168,12 @@ mod tests {
             Ok(actual::AddTransactionResponse {
                 id: "tx-123".into(),
             })
+        }
+        async fn get_balance_at(&self, _id: &str, _date: chrono::NaiveDate) -> actual::ActualResult<i64> {
+            unimplemented!("not needed for reconcile tests")
+        }
+        async fn import_transaction(&self, _tx: actual::ImportTransaction) -> actual::ActualResult<String> {
+            unimplemented!("not needed for reconcile tests")
         }
     }
 
