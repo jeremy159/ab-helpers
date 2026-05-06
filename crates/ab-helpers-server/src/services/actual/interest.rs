@@ -1,5 +1,18 @@
 use chrono::Datelike;
 
+pub enum InterestPeriod {
+    Weekly,
+    Monthly,
+}
+
+pub struct InterestConfig {
+    pub account_id: String,
+    pub rate: f64,
+    pub payee_name: String,
+    pub round: bool,
+    pub period: InterestPeriod,
+}
+
 pub struct BankPaymentResult {
     pub interest: i64,
     pub principal: i64,
@@ -52,6 +65,230 @@ pub fn mortgage_cutoff(last_tx_date: chrono::NaiveDate) -> chrono::NaiveDate {
 fn set_day_js(year: i32, month: u32, day: i64) -> chrono::NaiveDate {
     chrono::NaiveDate::from_ymd_opt(year, month, 1).unwrap()
         + chrono::Duration::days(day - 1)
+}
+
+use std::sync::Arc;
+use async_trait::async_trait;
+use ab_helpers_domain::InterestOutcome;
+use crate::error::{AppError, BudgetizeResult};
+
+pub struct InterestService<C> {
+    client: Arc<C>,
+    config: InterestConfig,
+}
+
+impl<C> InterestService<C> {
+    pub fn new(client: Arc<C>, config: InterestConfig) -> Self {
+        Self { client, config }
+    }
+}
+
+pub trait ActualClient:
+    actual::AccountRequests + actual::TransactionRequests + Send + Sync {}
+
+impl<T> ActualClient for T where
+    T: actual::AccountRequests + actual::TransactionRequests + Send + Sync {}
+
+impl<C: ActualClient + 'static> InterestService<C> {
+    pub async fn apply(&self) -> BudgetizeResult<InterestOutcome> {
+        // 1. Find account by ID
+        let accounts = self.client.list_accounts().await.map_err(AppError::from_actual)?;
+        let account = accounts
+            .iter()
+            .find(|a| a.id == self.config.account_id)
+            .ok_or_else(|| AppError::ActualAccountNotFound(self.config.account_id.clone()))?;
+
+        // 2. Closed guard
+        if account.closed {
+            tracing::warn!(
+                account_id = %account.id,
+                "account is closed, skipping interest run"
+            );
+            return Ok(InterestOutcome::AccountClosed);
+        }
+
+        // 3. Last transaction
+        let last_tx = self.client
+            .get_last_transaction(&account.id)
+            .await
+            .map_err(AppError::from_actual)?;
+
+        // 4. Cutoff date
+        let cutoff = match self.config.period {
+            InterestPeriod::Weekly => last_tx.date - chrono::Duration::days(1),
+            InterestPeriod::Monthly => mortgage_cutoff(last_tx.date),
+        };
+
+        // 5. Balance at cutoff
+        let balance = self.client
+            .get_balance_at(&account.id, cutoff)
+            .await
+            .map_err(AppError::from_actual)?;
+
+        // 6. Compute interest
+        let result = apply_bank_payment(balance, last_tx.amount, self.config.rate, self.config.round);
+
+        if result.interest == 0 {
+            return Ok(InterestOutcome::NoInterest { balance });
+        }
+
+        // 7. Notes string with formatted rate
+        let rate_pct = format!("{:.2}%", self.config.rate * 100.0);
+        let period_label = match self.config.period {
+            InterestPeriod::Weekly => "semaine",
+            InterestPeriod::Monthly => "mois",
+        };
+        let notes = format!("Intérêt pour 1 {period_label} à {rate_pct}");
+
+        // 8. Ensure payee
+        let payee_id = self.client
+            .ensure_payee(&self.config.payee_name)
+            .await
+            .map_err(AppError::from_actual)?;
+
+        // 9. Import transaction
+        let import_tx = actual::ImportTransaction {
+            account_id: account.id.clone(),
+            date: last_tx.date,
+            payee_id,
+            amount: result.interest,
+            notes: Some(notes),
+            cleared: Some(true),
+        };
+        let transaction_id = self.client
+            .import_transaction(import_tx)
+            .await
+            .map_err(AppError::from_actual)?;
+
+        Ok(InterestOutcome::Applied {
+            balance,
+            interest: result.interest,
+            new_balance: result.new_balance,
+            transaction_id,
+        })
+    }
+}
+
+#[cfg(test)]
+mod service_tests {
+    use super::*;
+    use std::sync::Arc;
+    use async_trait::async_trait;
+    use chrono::NaiveDate;
+    use actual::{
+        Account, ActualResult, AddTransactionResponse, ImportTransaction,
+        LastTransaction, SaveTransaction,
+    };
+
+    struct FakeClient {
+        accounts: Vec<Account>,
+        last_tx: LastTransaction,
+        balance: i64,
+        payee_id: String,
+        imported_tx: std::sync::Mutex<Option<ImportTransaction>>,
+    }
+
+    #[async_trait]
+    impl actual::AccountRequests for FakeClient {
+        async fn list_accounts(&self) -> ActualResult<Vec<Account>> {
+            Ok(self.accounts.clone())
+        }
+        async fn get_account_balance(&self, _id: &str) -> ActualResult<i64> {
+            Ok(self.balance)
+        }
+        async fn get_last_transaction(&self, _id: &str) -> ActualResult<LastTransaction> {
+            Ok(self.last_tx.clone())
+        }
+        async fn ensure_payee(&self, _name: &str) -> ActualResult<String> {
+            Ok(self.payee_id.clone())
+        }
+    }
+
+    #[async_trait]
+    impl actual::TransactionRequests for FakeClient {
+        async fn add_transaction(&self, _tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
+            Ok(AddTransactionResponse { id: "ignored".into() })
+        }
+        async fn get_balance_at(&self, _id: &str, _date: NaiveDate) -> ActualResult<i64> {
+            Ok(self.balance)
+        }
+        async fn import_transaction(&self, tx: ImportTransaction) -> ActualResult<String> {
+            *self.imported_tx.lock().unwrap() = Some(tx);
+            Ok("tx-interest-1".into())
+        }
+    }
+
+    fn make_account(id: &str, closed: bool) -> Account {
+        Account { id: id.into(), name: "Test Loan".into(), offbudget: false, closed }
+    }
+
+    fn make_client(closed: bool) -> Arc<FakeClient> {
+        Arc::new(FakeClient {
+            accounts: vec![make_account("acc-1", closed)],
+            last_tx: LastTransaction {
+                date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
+                amount: 10000,
+            },
+            balance: -50000,
+            payee_id: "payee-1".into(),
+            imported_tx: Default::default(),
+        })
+    }
+
+    fn kia_config() -> InterestConfig {
+        InterestConfig {
+            account_id: "acc-1".into(),
+            rate: 0.00133978648017598,
+            payee_name: "Loan Interest".into(),
+            round: false,
+            period: InterestPeriod::Weekly,
+        }
+    }
+
+    #[tokio::test]
+    async fn returns_account_closed_when_closed() {
+        let svc = InterestService::new(make_client(true), kia_config());
+        let outcome = svc.apply().await.unwrap();
+        assert!(matches!(outcome, InterestOutcome::AccountClosed));
+    }
+
+    #[tokio::test]
+    async fn applies_interest_and_imports_transaction() {
+        let client = make_client(false);
+        let svc = InterestService::new(client.clone(), kia_config());
+        let outcome = svc.apply().await.unwrap();
+
+        match outcome {
+            InterestOutcome::Applied { interest, transaction_id, .. } => {
+                assert_eq!(interest, -66); // floor(50000 * 0.00133978...) = 66, signed negative
+                assert_eq!(transaction_id, "tx-interest-1");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+
+        let tx = client.imported_tx.lock().unwrap().clone().expect("tx imported");
+        assert_eq!(tx.account_id, "acc-1");
+        assert_eq!(tx.payee_id, "payee-1");
+        assert_eq!(tx.cleared, Some(true));
+        assert!(tx.notes.as_deref().unwrap_or("").contains("semaine"));
+    }
+
+    #[tokio::test]
+    async fn returns_no_interest_when_zero() {
+        let client = Arc::new(FakeClient {
+            accounts: vec![make_account("acc-1", false)],
+            last_tx: LastTransaction {
+                date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
+                amount: 0,
+            },
+            balance: 0, // zero balance → zero interest
+            payee_id: "p".into(),
+            imported_tx: Default::default(),
+        });
+        let svc = InterestService::new(client, kia_config());
+        let outcome = svc.apply().await.unwrap();
+        assert!(matches!(outcome, InterestOutcome::NoInterest { .. }));
+    }
 }
 
 #[cfg(test)]
