@@ -1,3 +1,4 @@
+use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 /// Account information returned by the bridge.
@@ -43,4 +44,46 @@ pub struct SaveTransaction {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddTransactionResponse {
     pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LastTransactionResponse {
+    pub date: String,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct LastTransaction {
+    pub date: NaiveDate,
+    pub amount: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnsurePayeeResponse {
+    pub id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ImportTransaction {
+    pub account_id: String,
+    pub date: NaiveDate,
+    pub payee_id: String,
+    pub amount: i64,
+    pub notes: Option<String>,
+    pub cleared: Option<bool>,
+}
+
+/// Wire format for import-transaction bridge call.
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportTransactionRequest {
+    #[serde(rename = "accountId")]
+    pub account_id: String,
+    pub date: String,
+    #[serde(rename = "payeeId")]
+    pub payee_id: String,
+    pub amount: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleared: Option<bool>,
 }

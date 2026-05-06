@@ -73,6 +73,18 @@ async function main() {
       case "add-transaction":
         result = await addTransaction(args);
         break;
+      case "get-last-transaction":
+        result = await getLastTransaction(args);
+        break;
+      case "get-balance-at":
+        result = await getBalanceAt(args);
+        break;
+      case "ensure-payee":
+        result = await ensurePayee(args);
+        break;
+      case "import-transaction":
+        result = await importTransaction(args);
+        break;
       default:
         emitError("unknown-subcommand", `unknown subcommand: ${subcommand}`);
         process.exit(1);
@@ -122,6 +134,70 @@ async function addTransaction({ accountId, amount, payeeName, notes, date }) {
   const result = await api.addTransactions(accountId, [tx]);
   // addTransactions returns an array of new ids.
   const id = Array.isArray(result) ? result[0] : (result && result.added && result.added[0]);
+  if (!id) {
+    throwApi("transaction-not-created", "Actual returned no transaction id");
+  }
+  return { id: String(id) };
+}
+
+async function getLastTransaction({ accountId }) {
+  if (!accountId) {
+    throwApi("missing-account-id", "accountId is required");
+  }
+  const data = await api.runQuery(
+    api.q("transactions")
+      .filter({ account: accountId })
+      .select(["date", "amount"])
+      .orderBy({ date: "desc" })
+      .limit(1)
+      .options({ splits: "grouped" })
+  );
+  if (!data.data.length) {
+    throwApi("no-transactions", `no transactions found for account ${accountId}`);
+  }
+  const tx = data.data[0];
+  return { date: tx.date, amount: Number(tx.amount) };
+}
+
+async function getBalanceAt({ accountId, date }) {
+  if (!accountId) throwApi("missing-account-id", "accountId is required");
+  if (!date) throwApi("missing-date", "date is required");
+  const data = await api.runQuery(
+    api.q("transactions")
+      .filter({ account: accountId, date: { $lt: date } })
+      .calculate({ $sum: "$amount" })
+      .options({ splits: "grouped" })
+  );
+  return { balance: Number(data.data) };
+}
+
+async function ensurePayee({ name }) {
+  if (!name) throwApi("missing-name", "name is required");
+  const payees = await api.getPayees();
+  let payee = payees.find(p => p.name === name);
+  if (!payee) {
+    const id = await api.createPayee({ name });
+    return { id: String(id) };
+  }
+  return { id: String(payee.id) };
+}
+
+async function importTransaction({ accountId, date, payeeId, amount, notes, cleared }) {
+  if (!accountId) throwApi("missing-account-id", "accountId is required");
+  if (typeof amount !== "number" || !Number.isInteger(amount)) {
+    throwApi("bad-amount", "amount must be an integer (cents)");
+  }
+  const tx = {
+    account: accountId,
+    date: date || new Date().toISOString().slice(0, 10),
+    payee: payeeId || undefined,
+    amount,
+    notes: notes || undefined,
+    cleared: cleared !== undefined ? cleared : false,
+  };
+  const result = await api.importTransactions(accountId, [tx]);
+  const id = Array.isArray(result) ? result[0]
+    : (result && result.added && result.added[0]);
   if (!id) {
     throwApi("transaction-not-created", "Actual returned no transaction id");
   }

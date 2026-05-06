@@ -13,7 +13,10 @@ mod types;
 pub use bridge::{BridgeConfig, BridgeInvoker};
 pub use client::{AccountRequests, Client, TransactionRequests};
 pub use error::{ActualResult, Error};
-pub use types::{Account, AddTransactionResponse, BalanceResponse, ListAccountsResponse, SaveTransaction};
+pub use types::{
+    Account, AddTransactionResponse, BalanceResponse, ImportTransaction,
+    LastTransaction, ListAccountsResponse, SaveTransaction,
+};
 
 #[cfg(feature = "testutils")]
 pub use client::{MockAccountRequestsImpl, MockTransactionRequestsImpl};
