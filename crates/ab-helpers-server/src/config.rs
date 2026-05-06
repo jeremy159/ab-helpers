@@ -11,6 +11,7 @@ pub struct Settings {
     pub database: DatabaseSettings,
     pub redis: RedisSettings,
     pub actual: ActualSettings,
+    pub scheduler: SchedulerSettings,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -65,6 +66,29 @@ impl RedisSettings {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct KiaSettings {
+    pub account_id: String,
+    pub weekly_rate: f64,
+    pub payee_name: String,
+    pub round: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct MortgageSettings {
+    pub account_id: String,
+    pub monthly_rate: f64,
+    pub payee_name: String,
+    pub round: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SchedulerSettings {
+    pub kia_interest_cron: String,
+    pub mortgage_interest_cron: String,
+    pub timezone: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ActualSettings {
     pub server_url: String,
     pub password: Secret<String>,
@@ -82,6 +106,8 @@ pub struct ActualSettings {
     /// (`crates/actual/bridge/index.js`).
     #[serde(default)]
     pub bridge_script: String,
+    pub kia: KiaSettings,
+    pub mortgage: MortgageSettings,
 }
 
 fn default_node_bin() -> String {
@@ -168,6 +194,32 @@ impl Settings {
             .build()?;
 
         settings.try_deserialize::<Self>()
+    }
+}
+
+use crate::services::actual::{InterestConfig, InterestPeriod};
+
+impl KiaSettings {
+    pub fn interest_config(&self) -> InterestConfig {
+        InterestConfig {
+            account_id: self.account_id.clone(),
+            rate: self.weekly_rate,
+            payee_name: self.payee_name.clone(),
+            round: self.round,
+            period: InterestPeriod::Weekly,
+        }
+    }
+}
+
+impl MortgageSettings {
+    pub fn interest_config(&self) -> InterestConfig {
+        InterestConfig {
+            account_id: self.account_id.clone(),
+            rate: self.monthly_rate,
+            payee_name: self.payee_name.clone(),
+            round: self.round,
+            period: InterestPeriod::Monthly,
+        }
     }
 }
 

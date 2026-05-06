@@ -23,3 +23,20 @@ e2e_password = ""
 data_dir = ""
 node_bin = "node"
 bridge_script = ""
+
+[actual.kia]
+account_id   = ""
+weekly_rate  = 0.00133978648017598
+payee_name   = "Loan Interest"
+round        = false
+
+[actual.mortgage]
+account_id   = ""
+monthly_rate = 0.003543453216552734375
+payee_name   = "Loan Interest"
+round        = true
+
+[scheduler]
+kia_interest_cron      = "0 9 * * 4"
+mortgage_interest_cron = "0 9 18 * *"
+timezone               = "America/New_York"
