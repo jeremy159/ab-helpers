@@ -3,16 +3,20 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
+version = "0.1.0"
 rust-version = "1.94"
 authors = ["Jeremy Dube <jeremy.dube.dev@gmail.com>"]
 license = "MIT OR Apache-2.0"
-edition = "2021"
+edition = "2024"
 
 [profile.dev]
+# Disabling debug info speeds up builds a bunch,
+# and we don't rely on it for debugging that much.
 debug = 0
 
 [profile.release]
 incremental = true
+# Set this to 1 or 2 to get more useful backtraces in debugger.
 debug = 0
 
 [workspace.dependencies]
