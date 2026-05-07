@@ -89,7 +89,75 @@ trait ActualClientBound:
 impl<T> ActualClientBound for T where
     T: actual::AccountRequests + actual::TransactionRequests + Send + Sync {}
 
+/// Read-only result returned by `InterestService::preview`.
+#[derive(Debug)]
+pub enum InterestDryRun {
+    AccountClosed,
+    NoInterest {
+        balance: i64,
+        cutoff: chrono::NaiveDate,
+    },
+    WouldApply {
+        last_tx_date: chrono::NaiveDate,
+        cutoff: chrono::NaiveDate,
+        balance: i64,
+        interest: i64,
+        new_balance: i64,
+        notes: String,
+    },
+}
+
 impl<C: ActualClientBound + 'static> InterestService<C> {
+    /// Compute what `apply` would do without writing anything to Actual.
+    pub async fn preview(&self) -> BudgetizeResult<InterestDryRun> {
+        let accounts = self.client.list_accounts().await.map_err(AppError::from_actual)?;
+        let account = accounts
+            .iter()
+            .find(|a| a.id == self.config.account_id)
+            .ok_or_else(|| AppError::ActualAccountNotFound(self.config.account_id.clone()))?;
+
+        if account.closed {
+            return Ok(InterestDryRun::AccountClosed);
+        }
+
+        let last_tx = self.client
+            .get_last_transaction(&account.id)
+            .await
+            .map_err(AppError::from_actual)?;
+
+        let cutoff = match self.config.period {
+            InterestPeriod::Weekly => last_tx.date - chrono::Duration::days(1),
+            InterestPeriod::Monthly => mortgage_cutoff(last_tx.date),
+        };
+
+        let balance = self.client
+            .get_balance_at(&account.id, cutoff)
+            .await
+            .map_err(AppError::from_actual)?;
+
+        let result = apply_bank_payment(balance, last_tx.amount, self.config.rate, self.config.round);
+
+        if result.interest == 0 {
+            return Ok(InterestDryRun::NoInterest { balance, cutoff });
+        }
+
+        let rate_pct = format!("{:.2}%", self.config.rate * 100.0);
+        let period_label = match self.config.period {
+            InterestPeriod::Weekly => "semaine",
+            InterestPeriod::Monthly => "mois",
+        };
+        let notes = format!("Intérêt pour 1 {period_label} à {rate_pct}");
+
+        Ok(InterestDryRun::WouldApply {
+            last_tx_date: last_tx.date,
+            cutoff,
+            balance,
+            interest: result.interest,
+            new_balance: result.new_balance,
+            notes,
+        })
+    }
+
     pub async fn apply(&self) -> BudgetizeResult<InterestOutcome> {
         // 1. Find account by ID
         let accounts = self.client.list_accounts().await.map_err(AppError::from_actual)?;

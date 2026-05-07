@@ -20,9 +20,9 @@ enum Commands {
     /// Reconcile an account balance to a target value.
     SetBalance(commands::set_balance::SetBalanceArgs),
     /// Apply weekly Kia loan interest.
-    ApplyKiaInterest,
+    ApplyKiaInterest(commands::apply_kia_interest::ApplyKiaInterestArgs),
     /// Apply monthly mortgage interest.
-    ApplyMortgageInterest,
+    ApplyMortgageInterest(commands::apply_mortgage_interest::ApplyMortgageInterestArgs),
     /// Run the daemon scheduler (production entry point).
     Daemon,
 }
@@ -54,8 +54,8 @@ async fn run() -> anyhow::Result<ExitCode> {
 
     match args.command {
         Commands::SetBalance(a) => commands::set_balance::run(settings, a).await,
-        Commands::ApplyKiaInterest => commands::apply_kia_interest::run(settings).await,
-        Commands::ApplyMortgageInterest => commands::apply_mortgage_interest::run(settings).await,
+        Commands::ApplyKiaInterest(a) => commands::apply_kia_interest::run(settings, a).await,
+        Commands::ApplyMortgageInterest(a) => commands::apply_mortgage_interest::run(settings, a).await,
         Commands::Daemon => commands::daemon::run(settings).await,
     }
 }
