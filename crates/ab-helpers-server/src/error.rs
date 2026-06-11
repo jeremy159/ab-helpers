@@ -1,12 +1,12 @@
+use ab_helpers_domain::db::DbError;
 use axum::{
-    extract::{rejection::JsonRejection, FromRequest},
+    extract::{FromRequest, rejection::JsonRejection},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use ab_helpers_domain::db::DbError;
 use serde::Serialize;
 
-pub type BudgetizeResult<T> = Result<T, AppError>;
+pub type ABHelpersResult<T> = Result<T, AppError>;
 pub type HttpJsonResult<T> = Result<AppJson<T>, AppError>;
 
 #[derive(FromRequest, Debug)]
@@ -71,10 +71,9 @@ impl IntoResponse for AppError {
             AppError::ResourceAlreadyExists => {
                 (StatusCode::CONFLICT, "Resource already exists".to_owned())
             }
-            AppError::ActualAccountNotFound(_) => (
-                StatusCode::NOT_FOUND,
-                "Account does not exist".to_owned(),
-            ),
+            AppError::ActualAccountNotFound(_) => {
+                (StatusCode::NOT_FOUND, "Account does not exist".to_owned())
+            }
             AppError::ActualAccountAmbiguous { .. } => (
                 StatusCode::BAD_REQUEST,
                 "Account name matches multiple accounts".to_owned(),
@@ -84,9 +83,7 @@ impl IntoResponse for AppError {
                 "Actual integration failed".to_owned(),
             ),
             AppError::DbError(err) => match err {
-                DbError::NotFound => {
-                    (StatusCode::NOT_FOUND, "Resource does not exist".to_owned())
-                }
+                DbError::NotFound => (StatusCode::NOT_FOUND, "Resource does not exist".to_owned()),
                 DbError::AlreadyExists => {
                     (StatusCode::CONFLICT, "Resource already exists".to_owned())
                 }

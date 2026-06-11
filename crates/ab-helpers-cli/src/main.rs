@@ -25,6 +25,8 @@ enum Commands {
     ApplyMortgageInterest(commands::apply_mortgage_interest::ApplyMortgageInterestArgs),
     /// Run the daemon scheduler (production entry point).
     Daemon,
+    /// Seed ~/.config/ab-helpers with base.toml + a starter config.toml.
+    Init(commands::init::InitArgs),
 }
 
 #[tokio::main]
@@ -50,12 +52,24 @@ fn init_tracing() {
 
 async fn run() -> anyhow::Result<ExitCode> {
     let args = Cli::parse();
-    let settings = Settings::build().context("failed to load configuration")?;
 
+    // `init` creates the config, so it must not require it to already exist;
+    // every other command loads settings first.
     match args.command {
-        Commands::SetBalance(a) => commands::set_balance::run(settings, a).await,
-        Commands::ApplyKiaInterest(a) => commands::apply_kia_interest::run(settings, a).await,
-        Commands::ApplyMortgageInterest(a) => commands::apply_mortgage_interest::run(settings, a).await,
-        Commands::Daemon => commands::daemon::run(settings).await,
+        Commands::Init(a) => commands::init::run(a),
+        command => {
+            let settings = Settings::build().context("failed to load configuration")?;
+            match command {
+                Commands::SetBalance(a) => commands::set_balance::run(settings, a).await,
+                Commands::ApplyKiaInterest(a) => {
+                    commands::apply_kia_interest::run(settings, a).await
+                }
+                Commands::ApplyMortgageInterest(a) => {
+                    commands::apply_mortgage_interest::run(settings, a).await
+                }
+                Commands::Daemon => commands::daemon::run(settings).await,
+                Commands::Init(_) => unreachable!("handled above"),
+            }
+        }
     }
 }

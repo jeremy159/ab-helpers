@@ -1,0 +1,19 @@
+# Example CLI overrides for ~/.config/ab-helpers/config.toml
+#
+# `abh init` copies base.toml here as the defaults floor and writes a starter
+# config.toml; this file layers on top of base.toml, so only set what you need
+# to change. `ABH_`-prefixed env vars still override these values.
+
+[actual]
+server_url = "https://your-actual-server"
+password = "your-password"
+sync_id = "your-sync-id"
+# Override the default cache location (~/.local/share/ab-helpers/cache) if you
+# want the synced budget + daemon state somewhere else:
+# cache_dir = "/absolute/path/to/cache"
+
+[actual.kia]
+account_id = "your-kia-account-id"
+
+[actual.mortgage]
+account_id = "your-mortgage-account-id"

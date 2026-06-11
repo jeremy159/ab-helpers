@@ -1,5 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use crate::services::actual::{InterestConfig, InterestPeriod};
 use db_postgres::{PgConnectOptions, PgSslMode};
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
@@ -73,12 +74,36 @@ pub struct KiaSettings {
     pub round: bool,
 }
 
+impl KiaSettings {
+    pub fn interest_config(&self) -> InterestConfig {
+        InterestConfig {
+            account_id: self.account_id.clone(),
+            rate: self.weekly_rate,
+            payee_name: self.payee_name.clone(),
+            round: self.round,
+            period: InterestPeriod::Weekly,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct MortgageSettings {
     pub account_id: String,
     pub monthly_rate: f64,
     pub payee_name: String,
     pub round: bool,
+}
+
+impl MortgageSettings {
+    pub fn interest_config(&self) -> InterestConfig {
+        InterestConfig {
+            account_id: self.account_id.clone(),
+            rate: self.monthly_rate,
+            payee_name: self.payee_name.clone(),
+            round: self.round,
+            period: InterestPeriod::Monthly,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -93,12 +118,10 @@ pub struct ActualSettings {
     pub server_url: String,
     pub password: Secret<String>,
     pub sync_id: String,
-    #[serde(default)]
-    pub e2e_password: Option<Secret<String>>,
     /// Local cache directory for the Actual client. Empty → falls back to
-    /// `<workspace>/.actual-data`.
+    /// `<workspace>/cache`.
     #[serde(default)]
-    pub data_dir: String,
+    pub cache_dir: String,
     /// Override the `node` binary. Defaults to `node` on `PATH`.
     #[serde(default = "default_node_bin")]
     pub node_bin: String,
@@ -116,30 +139,24 @@ fn default_node_bin() -> String {
 
 impl ActualSettings {
     pub fn bridge_config(&self) -> actual::BridgeConfig {
-        let workspace_root = workspace_root();
         let bridge_script = if self.bridge_script.is_empty() {
-            workspace_root.join("crates/actual/bridge/index.js")
+            resource_root().join("crates/actual/bridge/index.js")
         } else {
             PathBuf::from(&self.bridge_script)
         };
-        let data_dir = if self.data_dir.is_empty() {
-            workspace_root.join(".actual-data")
+        let cache_dir = if self.cache_dir.is_empty() {
+            default_cache_dir()
         } else {
-            PathBuf::from(&self.data_dir)
+            PathBuf::from(&self.cache_dir)
         };
 
         actual::BridgeConfig {
             node_bin: PathBuf::from(&self.node_bin),
             bridge_script,
             server_url: self.server_url.clone(),
-            password: self.password.expose_secret().clone(),
+            password: self.password.clone(),
             sync_id: self.sync_id.clone(),
-            e2e_password: self
-                .e2e_password
-                .as_ref()
-                .map(|s| s.expose_secret().clone())
-                .filter(|s| !s.is_empty()),
-            data_dir,
+            cache_dir,
         }
     }
 
@@ -148,78 +165,182 @@ impl ActualSettings {
     }
 }
 
-/// Best-effort resolution of the workspace root from the current working dir.
-fn workspace_root() -> PathBuf {
-    let mut p = std::env::current_dir().expect("Failed to determine the current directory");
+/// Base directory for resolving the bundled Node bridge script and (in dev) the
+/// cache dir. Prefers the workspace root when running inside the source tree;
+/// otherwise the directory of the running executable. In Docker / an installed
+/// CLI, set `bridge_script` and `cache_dir` explicitly instead of relying on
+/// this.
+fn resource_root() -> PathBuf {
+    if let Ok(mut p) = std::env::current_dir() {
+        loop {
+            if p.join("Cargo.toml").is_file() && p.join("crates").is_dir() {
+                return p;
+            }
+            if !p.pop() {
+                break;
+            }
+        }
+    }
+    exe_dir().unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Default location for the Actual local data cache when `cache_dir` is unset.
+/// Resolves to `$XDG_DATA_HOME/ab-helpers/cache` (or `~/.local/share/...`) so
+/// every CLI invocation reads/writes the same place regardless of the working
+/// directory — this also holds the daemon's idempotency state, so it must not
+/// live under a clearable cache dir. Docker overrides it via
+/// `ABH__ACTUAL__CACHE_DIR`.
+fn default_cache_dir() -> PathBuf {
+    user_data_dir()
+        .map(|d| d.join("cache"))
+        .unwrap_or_else(|| resource_root().join("cache"))
+}
+
+/// Directory of the running executable, if resolvable.
+fn exe_dir() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+}
+
+/// `$XDG_DATA_HOME/ab-helpers` or `~/.local/share/ab-helpers`.
+fn user_data_dir() -> Option<PathBuf> {
+    xdg_dir("XDG_DATA_HOME", ".local/share")
+}
+
+fn xdg_dir(env_var: &str, home_suffix: &str) -> Option<PathBuf> {
+    if let Some(x) = std::env::var_os(env_var)
+        && !x.is_empty()
+    {
+        return Some(PathBuf::from(x).join("ab-helpers"));
+    }
+    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(home_suffix).join("ab-helpers"))
+}
+
+/// Locate the repo's `crates/ab-helpers-server/configuration` dir by walking up
+/// from the current directory (dev only).
+fn repo_config_dir() -> Option<PathBuf> {
+    let mut p = std::env::current_dir().ok()?;
     loop {
-        if p.join("Cargo.toml").is_file() && p.join("crates").is_dir() {
-            return p;
+        let candidate = p.join("crates/ab-helpers-server/configuration");
+        if candidate.join("base.toml").is_file() {
+            return Some(candidate);
         }
         if !p.pop() {
-            return std::env::current_dir().unwrap();
+            return None;
         }
     }
 }
 
+/// Source `configuration/` dir to seed XDG config from (used by `abh init`):
+/// the dir next to the executable, else the repo dir.
+pub fn default_config_source_dir() -> Option<PathBuf> {
+    if let Some(dir) = exe_dir().map(|d| d.join("configuration"))
+        && dir.join("base.toml").is_file()
+    {
+        return Some(dir);
+    }
+    repo_config_dir()
+}
+
+/// `$XDG_CONFIG_HOME/ab-helpers` or `~/.config/ab-helpers`.
+pub fn user_config_dir() -> Option<PathBuf> {
+    xdg_dir("XDG_CONFIG_HOME", ".config")
+}
+
+fn environment() -> Environment {
+    std::env::var("ABH_ENVIRONMENT")
+        .unwrap_or_else(|_| "local".into())
+        .try_into()
+        .expect("Failed to parse ABH_ENVIRONMENT.")
+}
+
+struct Layer {
+    path: PathBuf,
+    required: bool,
+}
+
+/// Ordered config files to layer (later overrides earlier), before
+/// `ABH_`-prefixed env vars are applied on top. First match wins:
+///
+/// 1. `ABH_CONFIG_FILE` — a single explicit file.
+/// 2. `ABH_CONFIG_DIR` — `base.toml` + `<ABH_ENVIRONMENT>.toml` in that dir.
+/// 3. `<exe>/configuration/base.toml` — dir next to the binary (Docker).
+/// 4. `~/.config/ab-helpers/{base,config}.toml` — installed CLI.
+/// 5. The repo `configuration/` dir, found by walking up from the CWD (dev).
+fn config_layers() -> Result<Vec<Layer>, config::ConfigError> {
+    if let Some(f) = non_empty_var("ABH_CONFIG_FILE") {
+        return Ok(vec![Layer {
+            path: PathBuf::from(f),
+            required: true,
+        }]);
+    }
+    if let Some(d) = non_empty_var("ABH_CONFIG_DIR") {
+        return Ok(env_dir_layers(&PathBuf::from(d)));
+    }
+    if let Some(dir) = exe_dir().map(|d| d.join("configuration"))
+        && dir.join("base.toml").is_file()
+    {
+        return Ok(env_dir_layers(&dir));
+    }
+    if let Some(dir) = user_config_dir()
+        && (dir.join("base.toml").is_file() || dir.join("config.toml").is_file())
+    {
+        return Ok(vec![
+            Layer {
+                path: dir.join("base.toml"),
+                required: false,
+            },
+            Layer {
+                path: dir.join("config.toml"),
+                required: false,
+            },
+        ]);
+    }
+    if let Some(dir) = repo_config_dir() {
+        return Ok(env_dir_layers(&dir));
+    }
+    Err(config::ConfigError::Message(format!(
+        "no configuration found. Set ABH_CONFIG_FILE or ABH_CONFIG_DIR, run `abh init` \
+         to create {}, or invoke from the project directory.",
+        user_config_dir()
+            .map(|d| d.join("config.toml").display().to_string())
+            .unwrap_or_else(|| "~/.config/ab-helpers/config.toml".into()),
+    )))
+}
+
+/// `base.toml` (required) + `<env>.toml` (optional) for a server-style dir.
+fn env_dir_layers(dir: &Path) -> Vec<Layer> {
+    vec![
+        Layer {
+            path: dir.join("base.toml"),
+            required: true,
+        },
+        Layer {
+            path: dir.join(format!("{}.toml", environment().as_str())),
+            required: false,
+        },
+    ]
+}
+
+fn non_empty_var(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|s| !s.is_empty())
+}
+
 impl Settings {
     pub fn build() -> Result<Self, config::ConfigError> {
-        let base_path = {
-            let p = std::env::current_dir().expect("Failed to determine the current directory");
-            if !p.ends_with("crates/ab-helpers-server") {
-                p.join("crates/ab-helpers-server")
-            } else {
-                p
-            }
-        };
-        let configuration_directory = base_path.join("configuration");
-
-        let environment: Environment = std::env::var("ABH_ENVIRONMENT")
-            .unwrap_or_else(|_| "local".into())
-            .try_into()
-            .expect("Failed to parse ABH_ENVIRONMENT.");
-        let environment_filename = format!("{}.toml", environment.as_str());
-
-        let settings = config::Config::builder()
-            .add_source(config::File::from(
-                configuration_directory.join("base.toml"),
-            ))
-            .add_source(config::File::from(
-                configuration_directory.join(environment_filename),
-            ))
+        let mut builder = config::Config::builder();
+        for layer in config_layers()? {
+            builder = builder.add_source(config::File::from(layer.path).required(layer.required));
+        }
+        builder
             .add_source(
                 config::Environment::with_prefix("ABH")
                     .prefix_separator("_")
                     .separator("__"),
             )
-            .build()?;
-
-        settings.try_deserialize::<Self>()
-    }
-}
-
-use crate::services::actual::{InterestConfig, InterestPeriod};
-
-impl KiaSettings {
-    pub fn interest_config(&self) -> InterestConfig {
-        InterestConfig {
-            account_id: self.account_id.clone(),
-            rate: self.weekly_rate,
-            payee_name: self.payee_name.clone(),
-            round: self.round,
-            period: InterestPeriod::Weekly,
-        }
-    }
-}
-
-impl MortgageSettings {
-    pub fn interest_config(&self) -> InterestConfig {
-        InterestConfig {
-            account_id: self.account_id.clone(),
-            rate: self.monthly_rate,
-            payee_name: self.payee_name.clone(),
-            round: self.round,
-            period: InterestPeriod::Monthly,
-        }
+            .build()?
+            .try_deserialize::<Self>()
     }
 }
 

@@ -3,12 +3,13 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 use async_trait::async_trait;
+use secrecy::{ExposeSecret, Secret};
 use serde_json::Value;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
-use crate::error::{ApiError, Error};
 use crate::ActualResult;
+use crate::error::{ApiError, Error};
 
 /// All the configuration the bridge needs to talk to an Actual server.
 ///
@@ -19,10 +20,9 @@ pub struct BridgeConfig {
     pub node_bin: PathBuf,
     pub bridge_script: PathBuf,
     pub server_url: String,
-    pub password: String,
+    pub password: Secret<String>,
     pub sync_id: String,
-    pub e2e_password: Option<String>,
-    pub data_dir: PathBuf,
+    pub cache_dir: PathBuf,
 }
 
 /// Object-safe trait: the wire types are JSON values so this can live behind
@@ -39,15 +39,12 @@ impl BridgeInvoker for BridgeConfig {
 
         let mut env: HashMap<&str, String> = HashMap::new();
         env.insert("ACTUAL_SERVER_URL", self.server_url.clone());
-        env.insert("ACTUAL_PASSWORD", self.password.clone());
+        env.insert("ACTUAL_PASSWORD", self.password.expose_secret().clone());
         env.insert("ACTUAL_SYNC_ID", self.sync_id.clone());
         env.insert(
             "ACTUAL_DATA_DIR",
-            self.data_dir.to_string_lossy().into_owned(),
+            self.cache_dir.to_string_lossy().into_owned(),
         );
-        if let Some(p) = self.e2e_password.as_ref() {
-            env.insert("ACTUAL_E2E_PASSWORD", p.clone());
-        }
 
         tracing::debug!(?subcommand, "invoking actual bridge");
 
@@ -90,6 +87,7 @@ impl BridgeInvoker for BridgeConfig {
             let api_err: ApiError = serde_json::from_value(err_obj.clone())?;
             return Err(Error::Api(api_err));
         }
+
         Ok(value)
     }
 }

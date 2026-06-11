@@ -20,6 +20,11 @@ serde_json.workspace = true
 sqlx.workspace = true
 fred.workspace = true
 
-mockall = { version = "0.13", optional = true }
-fake = { version = "3", optional = true, features = ["chrono", "derive", "uuid"] }
-rand = { version = "0.8", optional = true }
+mockall = { version = "^0.14", optional = true }
+fake = { version = "^5", optional = true, features = ["chrono", "derive", "uuid"] }
+rand = { version = "^0.10", optional = true }
+
+[dev-dependencies]
+mockall = { version = "0.13" }
+fake = { version = "^5", features = ["chrono", "derive", "uuid"] }
+rand = { version = "^0.10" }

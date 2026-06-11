@@ -2,9 +2,7 @@ use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
 /// Account information returned by the bridge.
-///
-/// Mirrors `ab_helpers_domain::ActualAccount` but lives in the client crate to
-/// keep the wire format independent of the domain model.
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Account {
     pub id: String,
@@ -15,17 +13,20 @@ pub struct Account {
     pub closed: bool,
 }
 
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListAccountsResponse {
     pub accounts: Vec<Account>,
 }
 
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BalanceResponse {
     /// Balance in integer cents.
     pub balance: i64,
 }
 
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaveTransaction {
     #[serde(rename = "accountId")]
@@ -41,28 +42,33 @@ pub struct SaveTransaction {
     pub date: Option<String>,
 }
 
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AddTransactionResponse {
     pub id: String,
 }
 
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LastTransactionResponse {
     pub date: String,
     pub amount: i64,
 }
 
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone)]
 pub struct LastTransaction {
     pub date: NaiveDate,
     pub amount: i64,
 }
 
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnsurePayeeResponse {
     pub id: String,
 }
 
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone)]
 pub struct ImportTransaction {
     pub account_id: String,
@@ -74,6 +80,7 @@ pub struct ImportTransaction {
 }
 
 /// Wire format for import-transaction bridge call.
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportTransactionRequest {
     #[serde(rename = "accountId")]

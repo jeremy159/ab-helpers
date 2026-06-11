@@ -8,7 +8,7 @@ edition.workspace = true
 
 [features]
 default = []
-testutils = ["dep:mockall"]
+testutils = ["dep:mockall", "dep:fake", "dep:rand"]
 
 [dependencies]
 async-trait.workspace = true
@@ -18,10 +18,14 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "io-util", "macros", "rt"] }
 tracing.workspace = true
-
-ab-helpers-domain.workspace = true
+secrecy = { version = "0.8" }
 
 mockall = { version = "0.13", optional = true }
+fake = { version = "^5", optional = true, features = ["chrono", "derive", "uuid"] }
+rand = { version = "^0.10", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt", "process"] }
+mockall = { version = "0.13" }
+fake = { version = "^5", features = ["chrono", "derive", "uuid"] }
+rand = { version = "^0.10" }

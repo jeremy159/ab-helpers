@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
-use axum::{body::Body, routing::get, Router};
-use http::{header::CONTENT_TYPE, Request};
+use axum::{Router, body::Body, routing::get};
+use http::{Request, header::CONTENT_TYPE};
 use sqlx::PgPool;
 use tokio::{net::TcpListener, signal};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -48,7 +48,7 @@ impl Application {
             .context(format!("failed to get local address from {address}"))?
             .port();
 
-        let origins = std::env::var("BUDGETIZE_CORS_ORIGINS")
+        let origins = std::env::var("ABH_CORS_ORIGINS")
             .unwrap_or_else(|_| "http://localhost:3000".to_string())
             .split(',')
             .filter_map(|o| o.trim().parse().ok())

@@ -38,7 +38,7 @@ chrono-tz = { version = "0.10", features = ["serde"] }
 anyhow = { version = "1", features = ["backtrace"] }
 thiserror = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
-async-trait = "0.1"
+async-trait = "0.1" # FIXME: Might be possible to remove with native support of async traits?
 tracing = "0.1"
 futures = "0.3"
 itertools = "0.13"

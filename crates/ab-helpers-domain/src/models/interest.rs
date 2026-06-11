@@ -1,7 +1,10 @@
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InterestOutcome {
     AccountClosed,
-    NoInterest { balance: i64 },
+    NoInterest {
+        balance: i64,
+    },
     Applied {
         balance: i64,
         interest: i64,

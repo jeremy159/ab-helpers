@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use ab_helpers_domain::{Money, ReconcileOutcome};
 
-use crate::error::{AppError, BudgetizeResult};
+use crate::error::{AppError, ABHelpersResult};
 
 /// Anything that can both list/balance accounts AND post transactions.
 ///
@@ -26,7 +26,7 @@ pub trait ReconcileServiceExt: Send + Sync {
         account_name: &str,
         target: Money,
         opts: ReconcileOptions,
-    ) -> BudgetizeResult<ReconcileOutcome>;
+    ) -> ABHelpersResult<ReconcileOutcome>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -59,7 +59,7 @@ where
         account_name: &str,
         target: Money,
         opts: ReconcileOptions,
-    ) -> BudgetizeResult<ReconcileOutcome> {
+    ) -> ABHelpersResult<ReconcileOutcome> {
         let accounts = self
             .client
             .list_accounts()

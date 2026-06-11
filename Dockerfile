@@ -26,12 +26,15 @@ RUN apt-get update \
 COPY --from=rust-builder /build/target/release/abh /usr/local/bin/abh
 COPY --from=node-setup /bridge/node_modules /app/bridge/node_modules
 COPY crates/actual/bridge/index.js /app/bridge/index.js
+COPY crates/ab-helpers-server/configuration /usr/local/bin/configuration
 
 ENV NODE_ENV=production
-ENV ACTUAL_DATA_DIR=/data
 ENV ABH_ENVIRONMENT=production
-ENV ABH__ACTUAL__BRIDGE_SCRIPT=/app/bridge/index.js
+ENV ABH_ACTUAL__BRIDGE_SCRIPT=/app/bridge/index.js
+# TODO: Is it really needed? was not like that before...
+ENV ABH_ACTUAL__CACHE_DIR=/data
 
+# TODO: Is it really needed? was not like that before...
 VOLUME ["/data"]
 
 CMD ["abh", "daemon"]

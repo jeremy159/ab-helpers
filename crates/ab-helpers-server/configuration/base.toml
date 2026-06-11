@@ -8,7 +8,7 @@ username = "postgres"
 password = "password"
 port = 5432
 host = "localhost"
-database_name = "budgetize"
+database_name = "ab_helpers"
 require_ssl = false
 
 [redis]
@@ -19,8 +19,7 @@ port = 6379
 server_url = ""
 password = ""
 sync_id = ""
-e2e_password = ""
-data_dir = ""
+cache_dir = ""
 node_bin = "node"
 bridge_script = ""
 

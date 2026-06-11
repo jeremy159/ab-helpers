@@ -44,15 +44,23 @@ fn save_state(data_dir: &str, state: &DaemonState) {
 /// Returns true if the next scheduled tick after `last_run` is already in the past.
 fn tick_was_missed(cron_5field: &str, last_run: DateTime<Utc>) -> bool {
     let expr = format!("0 {cron_5field}"); // prepend seconds field
-    let Ok(schedule) = Schedule::from_str(&expr) else { return false };
-    schedule.after(&last_run).next().map_or(false, |next| next < Utc::now())
+    let Ok(schedule) = Schedule::from_str(&expr) else {
+        return false;
+    };
+    schedule
+        .after(&last_run)
+        .next()
+        .map_or(false, |next| next < Utc::now())
 }
 
 pub async fn run(settings: Settings) -> anyhow::Result<ExitCode> {
-    let tz: Tz = settings.scheduler.timezone.parse()
+    let tz: Tz = settings
+        .scheduler
+        .timezone
+        .parse()
         .context("invalid timezone in scheduler config")?;
 
-    let data_dir = settings.actual.data_dir.clone();
+    let data_dir = settings.actual.cache_dir.clone();
     let state = Arc::new(Mutex::new(load_state(&data_dir)));
 
     // --- Missed-tick catch-up on startup ---
@@ -61,9 +69,11 @@ pub async fn run(settings: Settings) -> anyhow::Result<ExitCode> {
         let kia_cron = settings.scheduler.kia_interest_cron.clone();
         let mort_cron = settings.scheduler.mortgage_interest_cron.clone();
 
-        let kia_missed = s.kia_interest_last_run
+        let kia_missed = s
+            .kia_interest_last_run
             .map_or(true, |t| tick_was_missed(&kia_cron, t));
-        let mort_missed = s.mortgage_interest_last_run
+        let mort_missed = s
+            .mortgage_interest_last_run
             .map_or(true, |t| tick_was_missed(&mort_cron, t));
 
         drop(s); // release lock before async calls
@@ -159,7 +169,10 @@ async fn run_mortgage(settings: &Settings, state: &Arc<Mutex<DaemonState>>, data
             save_state(data_dir, &s);
         }
         Err(err) => {
-            tracing::error!(?err, "mortgage interest failed — will retry next scheduled tick");
+            tracing::error!(
+                ?err,
+                "mortgage interest failed — will retry next scheduled tick"
+            );
         }
     }
 }

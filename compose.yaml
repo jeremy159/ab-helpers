@@ -1,11 +1,11 @@
-name: budgetize
+name: ab_helpers
 services:
   api:
     build: .
     ports:
       - "8000:8000"
     environment:
-      BUDGETIZE_ENVIRONMENT: "staging"
+      ABH_ENVIRONMENT: "staging"
     depends_on:
       - postgres
       - redis
@@ -19,7 +19,7 @@ services:
     environment:
       POSTGRES_PASSWORD: "password"
       POSTGRES_USER: "postgres"
-      POSTGRES_DB: budgetize
+      POSTGRES_DB: ab_helpers
   redis:
     image: "redis:7"
     restart: always

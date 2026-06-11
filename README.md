@@ -22,19 +22,47 @@ Re-running the same command updates to the latest version. `~/.cargo/bin` is in 
 
 ## Configuration
 
-Key environment variables (override any `base.toml` value with `ABH__SECTION__KEY`):
+Configuration is loaded by layering, with later sources overriding earlier ones:
+`base.toml` (defaults) → an overlay file → `ABH_`-prefixed environment variables.
+The source is resolved in this order (first match wins):
+
+1. `ABH_CONFIG_FILE` — a single explicit config file.
+2. `ABH_CONFIG_DIR` — `base.toml` + `<ABH_ENVIRONMENT>.toml` in that directory.
+3. `configuration/` next to the binary (how the Docker image is set up).
+4. `~/.config/ab-helpers/{base.toml,config.toml}` — the installed CLI (see below).
+5. The project's `configuration/` directory (development).
+
+### CLI config (`~/.config/ab-helpers`)
+
+For the installed CLI, run `abh init` once to seed your config:
+
+```bash
+abh init
+```
+
+This copies `base.toml` (the defaults floor) to `~/.config/ab-helpers/base.toml`
+and writes a starter `~/.config/ab-helpers/config.toml` for your overrides. Edit
+`config.toml` to set your Actual credentials and account IDs — you only need the
+fields that differ from `base.toml`. Re-run `abh init` anytime to refresh
+`base.toml` with project updates; your `config.toml` is left untouched (use
+`--force` to overwrite it).
+
+### Environment variables
+
+Override any value with `ABH_SECTION__KEY` (single underscore after the `ABH`
+prefix, double underscore between nested keys):
 
 | Variable | Description |
 |---|---|
-| `ABH__ACTUAL__SERVER_URL` | Actual Budget server URL |
-| `ABH__ACTUAL__PASSWORD` | Actual Budget password |
-| `ABH__ACTUAL__SYNC_ID` | Budget file sync ID |
-| `ABH__ACTUAL__DATA_DIR` | Path for Actual local data cache |
-| `ABH__ACTUAL__KIA__ACCOUNT_ID` | Kia loan account ID in Actual |
-| `ABH__ACTUAL__MORTGAGE__ACCOUNT_ID` | Mortgage account ID in Actual |
-| `ABH__SCHEDULER__TIMEZONE` | Cron timezone (default: `America/New_York`) |
-| `ABH__SCHEDULER__KIA_INTEREST_CRON` | Kia cron schedule (default: Thursdays 9 AM) |
-| `ABH__SCHEDULER__MORTGAGE_INTEREST_CRON` | Mortgage cron schedule (default: 18th of month 9 AM) |
+| `ABH_ACTUAL__SERVER_URL` | Actual Budget server URL |
+| `ABH_ACTUAL__PASSWORD` | Actual Budget password |
+| `ABH_ACTUAL__SYNC_ID` | Budget file sync ID |
+| `ABH_ACTUAL__CACHE_DIR` | Path for the Actual local data cache + daemon state |
+| `ABH_ACTUAL__KIA__ACCOUNT_ID` | Kia loan account ID in Actual |
+| `ABH_ACTUAL__MORTGAGE__ACCOUNT_ID` | Mortgage account ID in Actual |
+| `ABH_SCHEDULER__TIMEZONE` | Cron timezone (default: `America/New_York`) |
+| `ABH_SCHEDULER__KIA_INTEREST_CRON` | Kia cron schedule (default: Thursdays 9 AM) |
+| `ABH_SCHEDULER__MORTGAGE_INTEREST_CRON` | Mortgage cron schedule (default: 18th of month 9 AM) |
 
 ## Docker
 
@@ -47,11 +75,11 @@ docker build -t ab-helpers .
 ```bash
 docker run -d --restart unless-stopped --name ab-helpers \
   -v ab-helpers-data:/data \
-  -e ABH__ACTUAL__SERVER_URL=https://your-actual-server \
-  -e ABH__ACTUAL__PASSWORD=your-password \
-  -e ABH__ACTUAL__SYNC_ID=your-sync-id \
-  -e ABH__ACTUAL__KIA__ACCOUNT_ID=your-kia-account-id \
-  -e ABH__ACTUAL__MORTGAGE__ACCOUNT_ID=your-mortgage-account-id \
+  -e ABH_ACTUAL__SERVER_URL=https://your-actual-server \
+  -e ABH_ACTUAL__PASSWORD=your-password \
+  -e ABH_ACTUAL__SYNC_ID=your-sync-id \
+  -e ABH_ACTUAL__KIA__ACCOUNT_ID=your-kia-account-id \
+  -e ABH_ACTUAL__MORTGAGE__ACCOUNT_ID=your-mortgage-account-id \
   ab-helpers
 ```
 
@@ -63,6 +91,6 @@ docker build -t ab-helpers . && docker restart ab-helpers
 **One-off command (e.g. dry-run):**
 ```bash
 docker run --rm \
-  -e ABH__ACTUAL__SERVER_URL=... \
+  -e ABH_ACTUAL__SERVER_URL=... \
   ab-helpers abh apply-kia-interest --dry-run
 ```

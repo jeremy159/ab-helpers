@@ -38,9 +38,12 @@ pub fn apply_bank_payment(
         previous_balance - interest_abs + payment
     };
 
-    let interest_signed = if previous_balance < 0 { -interest_abs } else { interest_abs };
-    let principal = previous_balance.unsigned_abs() as i64
-        - new_balance.unsigned_abs() as i64;
+    let interest_signed = if previous_balance < 0 {
+        -interest_abs
+    } else {
+        interest_abs
+    };
+    let principal = previous_balance.unsigned_abs() as i64 - new_balance.unsigned_abs() as i64;
 
     BankPaymentResult {
         interest: interest_signed,
@@ -63,14 +66,13 @@ pub fn mortgage_cutoff(last_tx_date: chrono::NaiveDate) -> chrono::NaiveDate {
 }
 
 fn set_day_js(year: i32, month: u32, day: i64) -> chrono::NaiveDate {
-    chrono::NaiveDate::from_ymd_opt(year, month, 1).unwrap()
-        + chrono::Duration::days(day - 1)
+    chrono::NaiveDate::from_ymd_opt(year, month, 1).unwrap() + chrono::Duration::days(day - 1)
 }
 
-use std::sync::Arc;
-use async_trait::async_trait;
+use crate::error::{ABHelpersResult, AppError};
 use ab_helpers_domain::InterestOutcome;
-use crate::error::{AppError, BudgetizeResult};
+use async_trait::async_trait;
+use std::sync::Arc;
 
 pub struct InterestService<C> {
     client: Arc<C>,
@@ -83,11 +85,12 @@ impl<C> InterestService<C> {
     }
 }
 
-trait ActualClientBound:
-    actual::AccountRequests + actual::TransactionRequests + Send + Sync {}
+trait ActualClientBound: actual::AccountRequests + actual::TransactionRequests + Send + Sync {}
 
 impl<T> ActualClientBound for T where
-    T: actual::AccountRequests + actual::TransactionRequests + Send + Sync {}
+    T: actual::AccountRequests + actual::TransactionRequests + Send + Sync
+{
+}
 
 /// Read-only result returned by `InterestService::preview`.
 #[derive(Debug)]
@@ -109,8 +112,12 @@ pub enum InterestDryRun {
 
 impl<C: ActualClientBound + 'static> InterestService<C> {
     /// Compute what `apply` would do without writing anything to Actual.
-    pub async fn preview(&self) -> BudgetizeResult<InterestDryRun> {
-        let accounts = self.client.list_accounts().await.map_err(AppError::from_actual)?;
+    pub async fn preview(&self) -> ABHelpersResult<InterestDryRun> {
+        let accounts = self
+            .client
+            .list_accounts()
+            .await
+            .map_err(AppError::from_actual)?;
         let account = accounts
             .iter()
             .find(|a| a.id == self.config.account_id)
@@ -120,7 +127,8 @@ impl<C: ActualClientBound + 'static> InterestService<C> {
             return Ok(InterestDryRun::AccountClosed);
         }
 
-        let last_tx = self.client
+        let last_tx = self
+            .client
             .get_last_transaction(&account.id)
             .await
             .map_err(AppError::from_actual)?;
@@ -130,12 +138,14 @@ impl<C: ActualClientBound + 'static> InterestService<C> {
             InterestPeriod::Monthly => mortgage_cutoff(last_tx.date),
         };
 
-        let balance = self.client
+        let balance = self
+            .client
             .get_balance_at(&account.id, cutoff)
             .await
             .map_err(AppError::from_actual)?;
 
-        let result = apply_bank_payment(balance, last_tx.amount, self.config.rate, self.config.round);
+        let result =
+            apply_bank_payment(balance, last_tx.amount, self.config.rate, self.config.round);
 
         if result.interest == 0 {
             return Ok(InterestDryRun::NoInterest { balance, cutoff });
@@ -158,9 +168,13 @@ impl<C: ActualClientBound + 'static> InterestService<C> {
         })
     }
 
-    pub async fn apply(&self) -> BudgetizeResult<InterestOutcome> {
+    pub async fn apply(&self) -> ABHelpersResult<InterestOutcome> {
         // 1. Find account by ID
-        let accounts = self.client.list_accounts().await.map_err(AppError::from_actual)?;
+        let accounts = self
+            .client
+            .list_accounts()
+            .await
+            .map_err(AppError::from_actual)?;
         let account = accounts
             .iter()
             .find(|a| a.id == self.config.account_id)
@@ -176,7 +190,8 @@ impl<C: ActualClientBound + 'static> InterestService<C> {
         }
 
         // 3. Last transaction
-        let last_tx = self.client
+        let last_tx = self
+            .client
             .get_last_transaction(&account.id)
             .await
             .map_err(AppError::from_actual)?;
@@ -188,13 +203,15 @@ impl<C: ActualClientBound + 'static> InterestService<C> {
         };
 
         // 5. Balance at cutoff
-        let balance = self.client
+        let balance = self
+            .client
             .get_balance_at(&account.id, cutoff)
             .await
             .map_err(AppError::from_actual)?;
 
         // 6. Compute interest
-        let result = apply_bank_payment(balance, last_tx.amount, self.config.rate, self.config.round);
+        let result =
+            apply_bank_payment(balance, last_tx.amount, self.config.rate, self.config.round);
 
         if result.interest == 0 {
             return Ok(InterestOutcome::NoInterest { balance });
@@ -209,7 +226,8 @@ impl<C: ActualClientBound + 'static> InterestService<C> {
         let notes = format!("Intérêt pour 1 {period_label} à {rate_pct}");
 
         // 8. Ensure payee
-        let payee_id = self.client
+        let payee_id = self
+            .client
             .ensure_payee(&self.config.payee_name)
             .await
             .map_err(AppError::from_actual)?;
@@ -223,7 +241,8 @@ impl<C: ActualClientBound + 'static> InterestService<C> {
             notes: Some(notes),
             cleared: Some(true),
         };
-        let transaction_id = self.client
+        let transaction_id = self
+            .client
             .import_transaction(import_tx)
             .await
             .map_err(AppError::from_actual)?;
@@ -240,13 +259,13 @@ impl<C: ActualClientBound + 'static> InterestService<C> {
 #[cfg(test)]
 mod service_tests {
     use super::*;
-    use std::sync::Arc;
+    use actual::{
+        Account, ActualResult, AddTransactionResponse, ImportTransaction, LastTransaction,
+        SaveTransaction,
+    };
     use async_trait::async_trait;
     use chrono::NaiveDate;
-    use actual::{
-        Account, ActualResult, AddTransactionResponse, ImportTransaction,
-        LastTransaction, SaveTransaction,
-    };
+    use std::sync::Arc;
 
     struct FakeClient {
         accounts: Vec<Account>,
@@ -274,8 +293,13 @@ mod service_tests {
 
     #[async_trait]
     impl actual::TransactionRequests for FakeClient {
-        async fn add_transaction(&self, _tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
-            Ok(AddTransactionResponse { id: "ignored".into() })
+        async fn add_transaction(
+            &self,
+            _tx: SaveTransaction,
+        ) -> ActualResult<AddTransactionResponse> {
+            Ok(AddTransactionResponse {
+                id: "ignored".into(),
+            })
         }
         async fn get_balance_at(&self, _id: &str, _date: NaiveDate) -> ActualResult<i64> {
             Ok(self.balance)
@@ -287,7 +311,12 @@ mod service_tests {
     }
 
     fn make_account(id: &str, closed: bool) -> Account {
-        Account { id: id.into(), name: "Test Loan".into(), offbudget: false, closed }
+        Account {
+            id: id.into(),
+            name: "Test Loan".into(),
+            offbudget: false,
+            closed,
+        }
     }
 
     fn make_client(closed: bool) -> Arc<FakeClient> {
@@ -327,14 +356,23 @@ mod service_tests {
         let outcome = svc.apply().await.unwrap();
 
         match outcome {
-            InterestOutcome::Applied { interest, transaction_id, .. } => {
+            InterestOutcome::Applied {
+                interest,
+                transaction_id,
+                ..
+            } => {
                 assert_eq!(interest, -66); // floor(50000 * 0.00133978...) = 66, signed negative
                 assert_eq!(transaction_id, "tx-interest-1");
             }
             other => panic!("unexpected: {other:?}"),
         }
 
-        let tx = client.imported_tx.lock().unwrap().clone().expect("tx imported");
+        let tx = client
+            .imported_tx
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("tx imported");
         assert_eq!(tx.account_id, "acc-1");
         assert_eq!(tx.payee_id, "payee-1");
         assert_eq!(tx.cleared, Some(true));
@@ -411,20 +449,29 @@ mod tests {
     fn mortgage_cutoff_may() {
         // May 18: month0=4, step1=setDay(4-1)=May 3, step2=setDay(3-1)=May 2
         let d = NaiveDate::from_ymd_opt(2024, 5, 18).unwrap();
-        assert_eq!(mortgage_cutoff(d), NaiveDate::from_ymd_opt(2024, 5, 2).unwrap());
+        assert_eq!(
+            mortgage_cutoff(d),
+            NaiveDate::from_ymd_opt(2024, 5, 2).unwrap()
+        );
     }
 
     #[test]
     fn mortgage_cutoff_february() {
         // Feb 18: month0=1, step1=setDay(0)=Jan 31, step2=setDay(30)=Jan 30
         let d = NaiveDate::from_ymd_opt(2024, 2, 18).unwrap();
-        assert_eq!(mortgage_cutoff(d), NaiveDate::from_ymd_opt(2024, 1, 30).unwrap());
+        assert_eq!(
+            mortgage_cutoff(d),
+            NaiveDate::from_ymd_opt(2024, 1, 30).unwrap()
+        );
     }
 
     #[test]
     fn mortgage_cutoff_january() {
         // Jan 18: month0=0, step1=setDay(-1)=Dec 30 2023, step2=setDay(29)=Dec 29 2023
         let d = NaiveDate::from_ymd_opt(2024, 1, 18).unwrap();
-        assert_eq!(mortgage_cutoff(d), NaiveDate::from_ymd_opt(2023, 12, 29).unwrap());
+        assert_eq!(
+            mortgage_cutoff(d),
+            NaiveDate::from_ymd_opt(2023, 12, 29).unwrap()
+        );
     }
 }

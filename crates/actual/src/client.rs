@@ -70,9 +70,13 @@ impl AccountRequests for Client {
             .invoke("get-last-transaction", json!({ "accountId": account_id }))
             .await?;
         let resp: LastTransactionResponse = serde_json::from_value(value)?;
-        let date = chrono::NaiveDate::parse_from_str(&resp.date, "%Y-%m-%d")
-            .map_err(|e| crate::error::Error::BridgeProtocol(format!("invalid date from bridge: {e}")))?;
-        Ok(LastTransaction { date, amount: resp.amount })
+        let date = chrono::NaiveDate::parse_from_str(&resp.date, "%Y-%m-%d").map_err(|e| {
+            crate::error::Error::BridgeProtocol(format!("invalid date from bridge: {e}"))
+        })?;
+        Ok(LastTransaction {
+            date,
+            amount: resp.amount,
+        })
     }
 
     async fn ensure_payee(&self, name: &str) -> ActualResult<String> {
@@ -87,10 +91,7 @@ impl AccountRequests for Client {
 
 #[async_trait]
 impl TransactionRequests for Client {
-    async fn add_transaction(
-        &self,
-        tx: SaveTransaction,
-    ) -> ActualResult<AddTransactionResponse> {
+    async fn add_transaction(&self, tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
         let value = self
             .invoker
             .invoke("add-transaction", serde_json::to_value(&tx)?)
