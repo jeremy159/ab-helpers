@@ -14,54 +14,76 @@ pub struct ApplyMortgageInterestArgs {
 }
 
 pub async fn run(settings: Settings, args: ApplyMortgageInterestArgs) -> anyhow::Result<ExitCode> {
+    tracing::info!(dry_run = args.dry_run, "apply-mortgage-interest started");
+
     let client = Arc::new(settings.actual.client());
     let config = settings.actual.mortgage.interest_config();
     let service = InterestService::new(client, config);
 
     if args.dry_run {
+        tracing::debug!("previewing mortgage interest (dry-run)");
         return match service.preview().await {
             Ok(InterestDryRun::AccountClosed) => {
-                println!("Account is closed — would skip.");
+                tracing::info!("mortgage account is closed — dry-run would skip");
                 Ok(ExitCode::SUCCESS)
             }
             Ok(InterestDryRun::NoInterest { balance, cutoff }) => {
-                println!("Balance at cutoff {cutoff}: {} cents — no interest would be applied.", balance);
+                tracing::info!(balance, %cutoff, "no mortgage interest would be applied (dry-run)");
                 Ok(ExitCode::SUCCESS)
             }
-            Ok(InterestDryRun::WouldApply { last_tx_date, cutoff, balance, interest, new_balance, notes }) => {
-                println!("Last transaction: {last_tx_date}");
-                println!("Cutoff date:      {cutoff}");
-                println!("Balance:          {} cents", balance);
-                println!("Interest (dry):   {} cents", interest);
-                println!("New balance:      {} cents", new_balance);
-                println!("Notes:            {notes}");
+            Ok(InterestDryRun::WouldApply {
+                last_tx_date,
+                cutoff,
+                balance,
+                interest,
+                new_balance,
+                notes,
+            }) => {
+                tracing::info!(
+                    balance,
+                    interest,
+                    new_balance,
+                    %last_tx_date,
+                    %cutoff,
+                    %notes,
+                    "mortgage interest dry-run: would apply\n  Last transaction: {last_tx_date}\n  Cutoff date:      {cutoff}\n  Balance:          {balance} cents\n  Interest (dry):   {interest} cents\n  New balance:      {new_balance} cents\n  Notes:            {notes}"
+                );
                 Ok(ExitCode::SUCCESS)
             }
             Err(err) => {
-                eprintln!("error: {err:?}");
+                tracing::error!(?err, "mortgage interest preview failed");
                 Ok(ExitCode::from(3))
             }
         };
     }
 
+    tracing::debug!("applying mortgage interest");
     match service.apply().await {
         Ok(InterestOutcome::AccountClosed) => {
-            println!("Account is closed — skipping.");
+            tracing::info!("mortgage account is closed — skipping");
             Ok(ExitCode::SUCCESS)
         }
         Ok(InterestOutcome::NoInterest { balance }) => {
-            println!("No interest to apply. Balance: {} cents", balance);
+            tracing::info!(balance, "no mortgage interest to apply");
             Ok(ExitCode::SUCCESS)
         }
-        Ok(InterestOutcome::Applied { balance, interest, new_balance, transaction_id }) => {
-            println!("Balance:      {} cents", balance);
-            println!("Interest:     {} cents", interest);
-            println!("New balance:  {} cents", new_balance);
-            println!("Transaction:  {}", transaction_id);
+        Ok(InterestOutcome::Applied {
+            balance,
+            interest,
+            new_balance,
+            transaction_id,
+        }) => {
+            tracing::info!(
+                balance,
+                interest,
+                new_balance,
+                %transaction_id,
+                "mortgage interest applied\n  Balance:      {balance} cents\n  Interest:     {interest} cents\n  New balance:  {new_balance} cents\n  Transaction:  {transaction_id}"
+            );
             Ok(ExitCode::SUCCESS)
         }
         Err(err) => {
-            eprintln!("error: {err:?}");
+            tracing::error!(?err, "mortgage interest application failed");
             Ok(ExitCode::from(3))
         }
     }

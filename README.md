@@ -64,33 +64,38 @@ prefix, double underscore between nested keys):
 | `ABH_SCHEDULER__KIA_INTEREST_CRON` | Kia cron schedule (default: Thursdays 9 AM) |
 | `ABH_SCHEDULER__MORTGAGE_INTEREST_CRON` | Mortgage cron schedule (default: 18th of month 9 AM) |
 
+## Logging
+
+Controlled via `RUST_LOG`. See [docs/logging.md](docs/logging.md) for level conventions and recommended values.
+
 ## Docker
 
-**Build:**
-```bash
-docker build -t ab-helpers .
+Create a `.env` file next to `compose.yaml` with your credentials:
+
+```env
+ABH_ACTUAL__SERVER_URL=https://your-actual-server
+ABH_ACTUAL__PASSWORD=your-password
+ABH_ACTUAL__SYNC_ID=your-sync-id
+ABH_ACTUAL__KIA__ACCOUNT_ID=your-kia-account-id
+ABH_ACTUAL__MORTGAGE__ACCOUNT_ID=your-mortgage-account-id
 ```
 
-**Run daemon:**
+**Start the daemon:**
 ```bash
-docker run -d --restart unless-stopped --name ab-helpers \
-  -v ab-helpers-data:/data \
-  -e ABH_ACTUAL__SERVER_URL=https://your-actual-server \
-  -e ABH_ACTUAL__PASSWORD=your-password \
-  -e ABH_ACTUAL__SYNC_ID=your-sync-id \
-  -e ABH_ACTUAL__KIA__ACCOUNT_ID=your-kia-account-id \
-  -e ABH_ACTUAL__MORTGAGE__ACCOUNT_ID=your-mortgage-account-id \
-  ab-helpers
+docker compose up -d --build
 ```
 
 **Update to a new image:**
 ```bash
-docker build -t ab-helpers . && docker restart ab-helpers
+docker compose up -d --build
+```
+
+**Follow logs:**
+```bash
+docker compose logs -f daemon
 ```
 
 **One-off command (e.g. dry-run):**
 ```bash
-docker run --rm \
-  -e ABH_ACTUAL__SERVER_URL=... \
-  ab-helpers abh apply-kia-interest --dry-run
+docker compose run --rm daemon abh apply-kia-interest --dry-run
 ```

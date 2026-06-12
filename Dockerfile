@@ -31,10 +31,8 @@ COPY crates/ab-helpers-server/configuration /usr/local/bin/configuration
 ENV NODE_ENV=production
 ENV ABH_ENVIRONMENT=production
 ENV ABH_ACTUAL__BRIDGE_SCRIPT=/app/bridge/index.js
-# TODO: Is it really needed? was not like that before...
 ENV ABH_ACTUAL__CACHE_DIR=/data
 
-# TODO: Is it really needed? was not like that before...
 VOLUME ["/data"]
 
 CMD ["abh", "daemon"]

@@ -33,6 +33,8 @@ pub struct SetBalanceArgs {
 }
 
 pub async fn run(settings: Settings, args: SetBalanceArgs) -> anyhow::Result<ExitCode> {
+    tracing::info!(account = %args.account, amount = %args.amount, dry_run = args.dry_run, "set-balance started");
+
     let client = settings.actual.client();
     let service = ReconcileService::new(Arc::new(client));
 
@@ -46,6 +48,7 @@ pub async fn run(settings: Settings, args: SetBalanceArgs) -> anyhow::Result<Exi
         notes: args.notes,
     };
 
+    tracing::debug!(account = %args.account, "reconciling account balance");
     match service
         .reconcile_account_to(&args.account, args.amount, opts)
         .await
@@ -55,19 +58,19 @@ pub async fn run(settings: Settings, args: SetBalanceArgs) -> anyhow::Result<Exi
             Ok(ExitCode::SUCCESS)
         }
         Err(AppError::ActualAccountNotFound(name)) => {
-            eprintln!("Account `{name}` not found in Actual.");
+            tracing::warn!(account = %name, "account not found in Actual");
             Ok(ExitCode::from(1))
         }
         Err(AppError::ActualAccountAmbiguous { name, matches }) => {
-            eprintln!("Account `{name}` is ambiguous; matches: {matches}");
+            tracing::warn!(account = %name, matches = %matches, "account name is ambiguous");
             Ok(ExitCode::from(1))
         }
         Err(AppError::Actual(err)) => {
-            eprintln!("Actual error: {err}");
+            tracing::error!(?err, "Actual API error during reconciliation");
             Ok(ExitCode::from(3))
         }
         Err(err) => {
-            eprintln!("error: {err:?}");
+            tracing::error!(?err, "reconciliation failed");
             Ok(ExitCode::from(3))
         }
     }
@@ -76,38 +79,47 @@ pub async fn run(settings: Settings, args: SetBalanceArgs) -> anyhow::Result<Exi
 async fn run_dry_run(settings: &Settings, args: &SetBalanceArgs) -> anyhow::Result<ExitCode> {
     use actual::{AccountRequests, Client};
 
+    tracing::debug!(account = %args.account, "fetching accounts for dry-run");
     let client = Client::new(settings.actual.bridge_config());
     let accounts = client.list_accounts().await?;
+    tracing::trace!(count = accounts.len(), "accounts fetched");
+
     let matches: Vec<&actual::Account> = accounts
         .iter()
         .filter(|a| !a.closed && a.name == args.account)
         .collect();
     let account = match matches.as_slice() {
         [] => {
-            eprintln!("Account `{}` not found in Actual.", args.account);
+            tracing::warn!(account = %args.account, "account not found in Actual (dry-run)");
             return Ok(ExitCode::from(1));
         }
         [only] => *only,
         many => {
             let names = many.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ");
-            eprintln!(
-                "Account `{}` is ambiguous; matches: {names}",
-                args.account
-            );
+            tracing::warn!(account = %args.account, matches = %names, "account name is ambiguous (dry-run)");
             return Ok(ExitCode::from(1));
         }
     };
     let current = Money::from_cents(client.get_account_balance(&account.id).await?);
     let diff = args.amount - current;
+    tracing::debug!(account_id = %account.id, current = %current, target = %args.amount, diff = %diff, "dry-run balance computed");
 
-    println!("Account:           {}", account.name);
-    println!("Current balance:   ${current}");
-    println!("Target balance:    ${}", args.amount);
     if diff.is_zero() {
-        println!("Already at target. No transaction would be created.");
+        tracing::info!(
+            account = %account.name,
+            "dry-run: account already at target\n  Account:         {}\n  Current balance: ${current}\n  Target balance:  ${}\n  No transaction would be created.",
+            account.name,
+            args.amount
+        );
     } else {
         let sign = if diff.cents() > 0 { "+" } else { "" };
-        println!("Adjustment (dry):  {sign}${diff}");
+        tracing::info!(
+            account = %account.name,
+            diff = %diff,
+            "dry-run: would adjust balance\n  Account:         {}\n  Current balance: ${current}\n  Target balance:  ${}\n  Adjustment (dry): {sign}${diff}",
+            account.name,
+            args.amount
+        );
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -115,8 +127,10 @@ async fn run_dry_run(settings: &Settings, args: &SetBalanceArgs) -> anyhow::Resu
 fn print_outcome(account_name: &str, outcome: &ReconcileOutcome) {
     match outcome {
         ReconcileOutcome::AlreadyAtTarget { balance } => {
-            println!(
-                "Account `{account_name}` already at ${balance}. No transaction created."
+            tracing::info!(
+                account = %account_name,
+                balance = %balance,
+                "account already at target\n  Account: {account_name}\n  Balance: ${balance}\n  No transaction created."
             );
         }
         ReconcileOutcome::Adjusted {
@@ -126,11 +140,12 @@ fn print_outcome(account_name: &str, outcome: &ReconcileOutcome) {
             transaction_id,
         } => {
             let sign = if adjustment.cents() > 0 { "+" } else { "" };
-            println!("Account:           {account_name}");
-            println!("Previous balance:  ${previous}");
-            println!("Target balance:    ${target}");
-            println!("Adjustment:        {sign}${adjustment}");
-            println!("Transaction:       {transaction_id}");
+            tracing::info!(
+                account = %account_name,
+                adjustment = %adjustment,
+                transaction_id = %transaction_id,
+                "balance adjusted\n  Account:          {account_name}\n  Previous balance: ${previous}\n  Target balance:   ${target}\n  Adjustment:       {sign}${adjustment}\n  Transaction:      {transaction_id}"
+            );
         }
     }
 }

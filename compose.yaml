@@ -1,33 +1,44 @@
 name: ab_helpers
 services:
-  api:
+  daemon:
     build: .
-    ports:
-      - "8000:8000"
+    restart: unless-stopped
+    env_file: .env
     environment:
-      ABH_ENVIRONMENT: "staging"
-    depends_on:
-      - postgres
-      - redis
-  postgres:
-    image: postgres:16
-    restart: always
-    ports:
-      - 5432:5432
+      RUST_LOG: abh=debug
     volumes:
-      - db:/var/lib/postgresql/data
-    environment:
-      POSTGRES_PASSWORD: "password"
-      POSTGRES_USER: "postgres"
-      POSTGRES_DB: ab_helpers
-  redis:
-    image: "redis:7"
-    restart: always
-    ports:
-      - 6379:6379
-    volumes:
-      - redis:/data
+      - data:/data
+
+  # Uncomment when deploying the API server:
+  # api:
+  #   build: .
+  #   command: abh serve
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     ABH_ENVIRONMENT: "staging"
+  #   depends_on:
+  #     - postgres
+  #     - redis
+
+  # postgres:
+  #   image: postgres:16
+  #   restart: always
+  #   volumes:
+  #     - db:/var/lib/postgresql/data
+  #   environment:
+  #     POSTGRES_PASSWORD: "password"
+  #     POSTGRES_USER: "postgres"
+  #     POSTGRES_DB: ab_helpers
+
+  # redis:
+  #   image: "redis:7"
+  #   restart: always
+  #   volumes:
+  #     - redis:/data
+
 volumes:
-  db:
-  redis:
-    driver: local
+  data:
+  # db:
+  # redis:
+  #   driver: local

@@ -3,7 +3,7 @@ use std::process::ExitCode;
 use ab_helpers_server::config::Settings;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 mod commands;
 
@@ -35,7 +35,7 @@ async fn main() -> ExitCode {
     match run().await {
         Ok(code) => code,
         Err(err) => {
-            eprintln!("error: {err:?}");
+            tracing::error!(?err, "fatal error");
             ExitCode::from(3)
         }
     }
@@ -43,7 +43,7 @@ async fn main() -> ExitCode {
 
 fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("ab_helpers_cli=info,actual=info"));
+        .unwrap_or_else(|_| EnvFilter::new("abh=info,actual=info"));
     tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
@@ -52,13 +52,17 @@ fn init_tracing() {
 
 async fn run() -> anyhow::Result<ExitCode> {
     let args = Cli::parse();
+    tracing::info!(command = ?args.command, "abh CLI started");
 
     // `init` creates the config, so it must not require it to already exist;
     // every other command loads settings first.
     match args.command {
         Commands::Init(a) => commands::init::run(a),
         command => {
-            let settings = Settings::build().context("failed to load configuration")?;
+            let settings = Settings::build()
+                .inspect_err(|err| tracing::error!(?err, "failed to load configuration"))
+                .context("failed to load configuration")?;
+            tracing::debug!("configuration loaded");
             match command {
                 Commands::SetBalance(a) => commands::set_balance::run(settings, a).await,
                 Commands::ApplyKiaInterest(a) => {
