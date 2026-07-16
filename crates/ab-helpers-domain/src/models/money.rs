@@ -12,42 +12,51 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Money(pub i64);
+pub struct Money(i64);
 
 impl Money {
     pub const ZERO: Money = Money(0);
 
-    pub fn from_cents(cents: i64) -> Self {
+    pub const fn from_cents(cents: i64) -> Self {
         Self(cents)
     }
 
-    pub fn cents(self) -> i64 {
+    pub const fn cents(self) -> i64 {
         self.0
     }
 
-    pub fn is_zero(self) -> bool {
+    pub const fn is_zero(self) -> bool {
         self.0 == 0
+    }
+
+    /// Returns the value formatted with an explicit `+` sign for positive amounts.
+    pub fn signed_str(self) -> String {
+        if self.cents() > 0 {
+            format!("+{self}")
+        } else {
+            format!("{self}")
+        }
     }
 }
 
 impl Add for Money {
     type Output = Money;
     fn add(self, rhs: Money) -> Money {
-        Money(self.0 + rhs.0)
+        Money::from_cents(self.cents() + rhs.cents())
     }
 }
 
 impl Sub for Money {
     type Output = Money;
     fn sub(self, rhs: Money) -> Money {
-        Money(self.0 - rhs.0)
+        Money::from_cents(self.cents() - rhs.cents())
     }
 }
 
 impl Neg for Money {
     type Output = Money;
     fn neg(self) -> Money {
-        Money(-self.0)
+        Money::from_cents(-self.cents())
     }
 }
 
@@ -73,10 +82,12 @@ impl FromStr for Money {
         if s.is_empty() {
             return Err(ParseMoneyError::Empty);
         }
-        let (sign, rest) = match s.as_bytes()[0] {
-            b'-' => (-1i64, &s[1..]),
-            b'+' => (1i64, &s[1..]),
-            _ => (1i64, s),
+        let (sign, rest) = if let Some(r) = s.strip_prefix('-') {
+            (-1i64, r)
+        } else if let Some(r) = s.strip_prefix('+') {
+            (1i64, r)
+        } else {
+            (1i64, s)
         };
         if rest.is_empty() {
             return Err(ParseMoneyError::Empty);
@@ -105,13 +116,13 @@ impl FromStr for Money {
             }
         };
 
-        Ok(Money(sign * (whole * 100 + frac_cents)))
+        Ok(Money::from_cents(sign * (whole * 100 + frac_cents)))
     }
 }
 
 impl fmt::Display for Money {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let cents = self.0;
+        let cents = self.cents();
         let sign = if cents < 0 { "-" } else { "" };
         let abs = cents.unsigned_abs();
         let dollars = abs / 100;

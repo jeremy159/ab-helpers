@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use ab_helpers_domain::InterestPeriod;
+use chrono_tz::Tz;
 use db_postgres::{PgConnectOptions, PgSslMode};
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
@@ -118,7 +119,7 @@ pub struct InterestConfig {
 pub struct SchedulerSettings {
     pub kia_interest_cron: String,
     pub mortgage_interest_cron: String,
-    pub timezone: String,
+    pub timezone: Tz,
 }
 
 #[derive(Debug, Clone, Deserialize)]

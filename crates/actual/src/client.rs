@@ -70,11 +70,8 @@ impl AccountRequests for Client {
             .invoke("get-last-transaction", json!({ "accountId": account_id }))
             .await?;
         let resp: LastTransactionResponse = serde_json::from_value(value)?;
-        let date = chrono::NaiveDate::parse_from_str(&resp.date, "%Y-%m-%d").map_err(|e| {
-            crate::error::Error::BridgeProtocol(format!("invalid date from bridge: {e}"))
-        })?;
         Ok(LastTransaction {
-            date,
+            date: resp.date,
             amount: resp.amount,
         })
     }

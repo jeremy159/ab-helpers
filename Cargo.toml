@@ -40,7 +40,10 @@ thiserror = "2"
 uuid = { version = "1", features = ["serde", "v4"] }
 async-trait = "0.1" # FIXME: Might be possible to remove with native support of async traits?
 tracing = "0.1"
-futures = "0.3"
-itertools = "0.13"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+secrecy = { version = "0.8", features = ["serde"] }
+mockall = { version = "0.13" }
+fake = { version = "5", features = ["chrono", "derive", "uuid"] }
+rand = { version = "0.10" }
 tokio-cron-scheduler = "0.13"
 cron = "0.12"

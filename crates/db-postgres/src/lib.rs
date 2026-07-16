@@ -1,5 +1,5 @@
 pub use sqlx::postgres::{PgConnectOptions, PgSslMode};
-use sqlx::{postgres::PgPoolOptions, PgPool};
+use sqlx::{PgPool, postgres::PgPoolOptions};
 
 // Add repo implementation modules here, e.g.:
 // pub mod account;

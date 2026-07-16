@@ -1,26 +1,15 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use ab_helpers_domain::{Money, ReconcileOutcome};
+use async_trait::async_trait;
+use chrono::NaiveDate;
 
-use crate::error::{AppError, ABHelpersResult};
+use crate::error::{ABHelpersResult, AppError};
 
-/// Anything that can both list/balance accounts AND post transactions.
-///
-/// Composed from the two `actual` traits so the service can be generic over
-/// any client implementation (production or mocked).
-pub trait ActualClient:
-    actual::AccountRequests + actual::TransactionRequests + Send + Sync
-{
-}
-
-impl<T> ActualClient for T where
-    T: actual::AccountRequests + actual::TransactionRequests + Send + Sync
-{
-}
+use super::ActualClient;
 
 #[async_trait]
-pub trait ReconcileServiceExt: Send + Sync {
+pub trait Reconcile: Send + Sync {
     async fn reconcile_account_to(
         &self,
         account_name: &str,
@@ -31,8 +20,8 @@ pub trait ReconcileServiceExt: Send + Sync {
 
 #[derive(Debug, Clone, Default)]
 pub struct ReconcileOptions {
-    /// `YYYY-MM-DD`. `None` → today (resolved by the bridge).
-    pub date: Option<String>,
+    /// Date for the adjustment transaction. `None` → today (resolved by the bridge).
+    pub date: Option<NaiveDate>,
     /// Override the payee name on the adjustment transaction.
     pub payee_name: Option<String>,
     /// Free-form notes attached to the adjustment transaction.
@@ -40,7 +29,7 @@ pub struct ReconcileOptions {
 }
 
 pub struct ReconcileService<C> {
-    pub client: Arc<C>,
+    client: Arc<C>,
 }
 
 impl<C> ReconcileService<C> {
@@ -50,7 +39,7 @@ impl<C> ReconcileService<C> {
 }
 
 #[async_trait]
-impl<C> ReconcileServiceExt for ReconcileService<C>
+impl<C> Reconcile for ReconcileService<C>
 where
     C: ActualClient + 'static,
 {
@@ -60,11 +49,7 @@ where
         target: Money,
         opts: ReconcileOptions,
     ) -> ABHelpersResult<ReconcileOutcome> {
-        let accounts = self
-            .client
-            .list_accounts()
-            .await
-            .map_err(AppError::from_actual)?;
+        let accounts = self.client.list_accounts().await?;
 
         let matches: Vec<&actual::Account> = accounts
             .iter()
@@ -75,23 +60,18 @@ where
             [] => return Err(AppError::ActualAccountNotFound(account_name.to_string())),
             [only] => *only,
             many => {
-                let names = many
+                let matches = many
                     .iter()
                     .map(|a| format!("{} ({})", a.name, a.id))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .collect::<Vec<_>>();
                 return Err(AppError::ActualAccountAmbiguous {
                     name: account_name.to_string(),
-                    matches: names,
+                    matches,
                 });
             }
         };
 
-        let current_cents = self
-            .client
-            .get_account_balance(&account.id)
-            .await
-            .map_err(AppError::from_actual)?;
+        let current_cents = self.client.get_account_balance(&account.id).await?;
         let current = Money::from_cents(current_cents);
         let diff = target - current;
 
@@ -107,14 +87,10 @@ where
             amount: diff.cents(),
             payee_name: Some(payee_name),
             notes: opts.notes,
-            date: opts.date,
+            date: opts.date.map(|d| d.to_string()),
         };
 
-        let resp = self
-            .client
-            .add_transaction(tx)
-            .await
-            .map_err(AppError::from_actual)?;
+        let resp = self.client.add_transaction(tx).await?;
 
         Ok(ReconcileOutcome::Adjusted {
             previous: current,
@@ -129,8 +105,8 @@ where
 mod tests {
     use std::sync::Arc;
 
-    use async_trait::async_trait;
     use ab_helpers_domain::{Money, ReconcileOutcome};
+    use async_trait::async_trait;
 
     use super::*;
 
@@ -150,7 +126,10 @@ mod tests {
         async fn get_account_balance(&self, _id: &str) -> actual::ActualResult<i64> {
             Ok(self.balance_cents)
         }
-        async fn get_last_transaction(&self, _id: &str) -> actual::ActualResult<actual::LastTransaction> {
+        async fn get_last_transaction(
+            &self,
+            _id: &str,
+        ) -> actual::ActualResult<actual::LastTransaction> {
             unimplemented!("not needed for reconcile tests")
         }
         async fn ensure_payee(&self, _name: &str) -> actual::ActualResult<String> {
@@ -169,10 +148,17 @@ mod tests {
                 id: "tx-123".into(),
             })
         }
-        async fn get_balance_at(&self, _id: &str, _date: chrono::NaiveDate) -> actual::ActualResult<i64> {
+        async fn get_balance_at(
+            &self,
+            _id: &str,
+            _date: chrono::NaiveDate,
+        ) -> actual::ActualResult<i64> {
             unimplemented!("not needed for reconcile tests")
         }
-        async fn import_transaction(&self, _tx: actual::ImportTransaction) -> actual::ActualResult<String> {
+        async fn import_transaction(
+            &self,
+            _tx: actual::ImportTransaction,
+        ) -> actual::ActualResult<String> {
             unimplemented!("not needed for reconcile tests")
         }
     }
@@ -281,10 +267,7 @@ mod tests {
     #[tokio::test]
     async fn errors_when_account_name_is_ambiguous() {
         let client = Arc::new(FakeClient {
-            accounts: vec![
-                account("a-1", "Checking"),
-                account("a-2", "Checking"),
-            ],
+            accounts: vec![account("a-1", "Checking"), account("a-2", "Checking")],
             balance_cents: 0,
             last_tx: Default::default(),
         });

@@ -1,6 +1,11 @@
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
+fn deserialize_naive_date<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NaiveDate, D::Error> {
+    let s = String::deserialize(d)?;
+    NaiveDate::parse_from_str(&s, "%Y-%m-%d").map_err(serde::de::Error::custom)
+}
+
 /// Account information returned by the bridge.
 #[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -28,12 +33,12 @@ pub struct BalanceResponse {
 
 #[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SaveTransaction {
-    #[serde(rename = "accountId")]
     pub account_id: String,
     /// Amount in integer cents. Positive = inflow, negative = outflow.
     pub amount: i64,
-    #[serde(rename = "payeeName", skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub payee_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
@@ -51,7 +56,8 @@ pub struct AddTransactionResponse {
 #[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LastTransactionResponse {
-    pub date: String,
+    #[serde(deserialize_with = "deserialize_naive_date")]
+    pub date: NaiveDate,
     pub amount: i64,
 }
 
@@ -82,11 +88,10 @@ pub struct ImportTransaction {
 /// Wire format for import-transaction bridge call.
 #[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportTransactionRequest {
-    #[serde(rename = "accountId")]
     pub account_id: String,
     pub date: String,
-    #[serde(rename = "payeeId")]
     pub payee_id: String,
     pub amount: i64,
     #[serde(skip_serializing_if = "Option::is_none")]

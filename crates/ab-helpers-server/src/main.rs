@@ -8,11 +8,7 @@ use db_postgres::get_connection_pool;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let subscriber = get_subscriber(
-        "ab_helpers".into(),
-        "ab_helpers=debug,tower_http=debug".into(),
-        std::io::stdout,
-    );
+    let subscriber = get_subscriber("ab_helpers=debug,tower_http=debug".into());
     init_subscriber(subscriber);
 
     let configuration = config::Settings::build()?;

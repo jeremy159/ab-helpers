@@ -1,10 +1,11 @@
 use std::fs;
 use std::path::PathBuf;
-use std::process::ExitCode;
 
 use ab_helpers_server::config;
-use anyhow::{Context, bail};
+use anyhow::Context;
 use clap::Args;
+
+use super::error::CliError;
 
 /// Seed the user config dir (`~/.config/ab-helpers`) with `base.toml` (defaults)
 /// and a starter `config.toml` (your overrides).
@@ -35,7 +36,7 @@ account_id = \"\"
 account_id = \"\"
 ";
 
-pub fn run(args: InitArgs) -> anyhow::Result<ExitCode> {
+pub fn run(args: InitArgs) -> Result<(), CliError> {
     tracing::info!("init command started");
 
     let dest = config::user_config_dir()
@@ -51,7 +52,10 @@ pub fn run(args: InitArgs) -> anyhow::Result<ExitCode> {
     tracing::debug!(src = %src_base.display(), "located base.toml source");
     if !src_base.is_file() {
         tracing::error!(path = %src_base.display(), "base.toml not found in source directory");
-        bail!("no base.toml in {}", src_dir.display());
+        return Err(CliError::Failure(anyhow::anyhow!(
+            "no base.toml in {}",
+            src_dir.display()
+        )));
     }
 
     // base.toml is the shipped defaults floor - always refreshed so re-running
@@ -86,5 +90,5 @@ pub fn run(args: InitArgs) -> anyhow::Result<ExitCode> {
         dest_config.display()
     );
     tracing::info!(config_dir = %dest.display(), "init complete");
-    Ok(ExitCode::SUCCESS)
+    Ok(())
 }

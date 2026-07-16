@@ -34,18 +34,12 @@ pub enum AppError {
     DbError(#[from] DbError),
     #[error("Actual account `{0}` not found")]
     ActualAccountNotFound(String),
-    #[error("Multiple Actual accounts match `{name}`: {matches}")]
-    ActualAccountAmbiguous { name: String, matches: String },
+    #[error("Multiple Actual accounts match `{name}`: {}", .matches.join(", "))]
+    ActualAccountAmbiguous { name: String, matches: Vec<String> },
     #[error("Actual integration error: {0}")]
     Actual(#[from] actual::Error),
     #[error(transparent)]
     Unexpected(#[from] anyhow::Error),
-}
-
-impl AppError {
-    pub fn from_actual(err: actual::Error) -> Self {
-        AppError::Actual(err)
-    }
 }
 
 impl std::fmt::Debug for AppError {

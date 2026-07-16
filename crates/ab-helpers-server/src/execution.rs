@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 
+use crate::error::ABHelpersResult;
+
 /// Marker struct for dry-run mode - read-only, no writes performed.
 #[derive(Debug, Clone, Copy)]
 pub struct DryRun;
@@ -39,11 +41,11 @@ pub trait PlanExecute: Sized + Send + Sync {
 
     fn writer(&self) -> &Self::Writer;
 
-    async fn plan(&self) -> anyhow::Result<PlanOutcome<Self::Skip, Self::Plan>>;
+    async fn plan(&self) -> ABHelpersResult<PlanOutcome<Self::Skip, Self::Plan>>;
 
     /// Single public entry point. Call as `service.run::<DryRun>()` or `service.run::<Live>()`.
     /// Do not override this method.
-    async fn run<M>(&self) -> anyhow::Result<M::Outcome>
+    async fn run<M>(&self) -> ABHelpersResult<M::Outcome>
     where
         M: RunMode<Self::Skip, Self::Plan, Self::Writer> + Send + Sync,
         M::Outcome: Send,
@@ -70,7 +72,5 @@ pub trait RunMode<S, P, W>: private::ExecutionMode + Send + Sync {
     /// Mode-specific apply step.
     /// `DryRun` implementations ignore `writer` and project the plan.
     /// `Live` implementations call `writer` for mutations.
-    async fn apply(writer: &W, plan: P) -> anyhow::Result<Self::Outcome>
-    where
-        W: Send + Sync;
+    async fn apply(writer: &W, plan: P) -> ABHelpersResult<Self::Outcome>;
 }

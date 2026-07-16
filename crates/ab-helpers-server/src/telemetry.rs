@@ -2,17 +2,9 @@ use tokio::task::JoinHandle;
 use tracing::Subscriber;
 use tracing::subscriber::set_global_default;
 use tracing_log::LogTracer;
-use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt};
 
-pub fn get_subscriber<Sink>(
-    _name: String,
-    env_filter: String,
-    _sink: Sink,
-) -> impl Subscriber + Sync + Send
-where
-    Sink: for<'a> MakeWriter<'a> + Send + Sync + 'static,
-{
+pub fn get_subscriber(env_filter: String) -> impl Subscriber + Sync + Send {
     let env_filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(env_filter));
 

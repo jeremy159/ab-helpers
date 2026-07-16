@@ -1,11 +1,13 @@
 use chrono::Months;
 use chrono::NaiveDate;
 
+use super::money::Money;
+
 /// Reasons why an interest run is skipped without performing any writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InterestSkip {
     AccountClosed,
-    NoInterest { balance: i64, cutoff: NaiveDate },
+    NoInterest { balance: Money, cutoff: NaiveDate },
 }
 
 /// Outcome of a dry-run interest execution.
@@ -15,9 +17,9 @@ pub enum DryRunOutcome {
     WouldApply {
         last_tx_date: NaiveDate,
         cutoff: NaiveDate,
-        balance: i64,
-        interest: i64,
-        new_balance: i64,
+        balance: Money,
+        interest: Money,
+        new_balance: Money,
         notes: String,
     },
 }
@@ -27,9 +29,9 @@ pub enum DryRunOutcome {
 pub enum LiveOutcome {
     Skip(InterestSkip),
     Applied {
-        balance: i64,
-        interest: i64,
-        new_balance: i64,
+        balance: Money,
+        interest: Money,
+        new_balance: Money,
         transaction_id: String,
     },
 }
@@ -61,41 +63,44 @@ impl InterestPeriod {
 }
 
 pub struct BankPaymentResult {
-    pub interest: i64,
-    pub principal: i64,
-    pub new_balance: i64,
+    pub interest: Money,
+    pub principal: Money,
+    pub new_balance: Money,
 }
 
 pub fn apply_bank_payment(
-    previous_balance: i64,
-    payment: i64,
+    previous_balance: Money,
+    payment: Money,
     rate: f64,
     round: bool,
 ) -> BankPaymentResult {
-    let abs_prev = previous_balance.unsigned_abs() as f64;
+    let abs_prev = previous_balance.cents().unsigned_abs() as f64;
     let interest_abs = if round {
         (abs_prev * rate).round() as i64
     } else {
         (abs_prev * rate).floor() as i64
     };
 
-    let new_balance = if previous_balance >= 0 {
-        previous_balance + interest_abs - payment
+    let prev = previous_balance.cents();
+    let pay = payment.cents();
+
+    let new_balance_cents = if prev >= 0 {
+        prev + interest_abs - pay
     } else {
-        previous_balance - interest_abs + payment
+        prev - interest_abs + pay
     };
 
-    let interest_signed = if previous_balance < 0 {
+    let interest_signed = if prev < 0 {
         -interest_abs
     } else {
         interest_abs
     };
-    let principal = previous_balance.unsigned_abs() as i64 - new_balance.unsigned_abs() as i64;
+    let principal_abs = prev.unsigned_abs() as i64 - new_balance_cents.unsigned_abs() as i64;
 
     BankPaymentResult {
-        interest: interest_signed,
-        principal,
-        new_balance,
+        interest: Money::from_cents(interest_signed),
+        principal: Money::from_cents(principal_abs),
+        new_balance: Money::from_cents(new_balance_cents),
     }
 }
 
@@ -113,9 +118,9 @@ pub struct InterestPlan {
     pub account_id: String,
     pub last_tx_date: NaiveDate,
     pub cutoff: NaiveDate,
-    pub balance: i64,
-    pub interest: i64,
-    pub new_balance: i64,
+    pub balance: Money,
+    pub interest: Money,
+    pub new_balance: Money,
     pub notes: String,
     pub payee_name: String,
 }

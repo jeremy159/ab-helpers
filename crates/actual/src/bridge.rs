@@ -73,7 +73,10 @@ impl BridgeInvoker for BridgeConfig {
         if let Some(mut s) = child.stderr.take() {
             s.read_to_string(&mut stderr).await?;
         }
-        let _status = child.wait().await?;
+        let status = child.wait().await?;
+        if !status.success() {
+            tracing::warn!(%subcommand, exit_code = ?status.code(), "bridge exited with non-zero status");
+        }
 
         let value: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
             Error::BridgeProtocol(format!(

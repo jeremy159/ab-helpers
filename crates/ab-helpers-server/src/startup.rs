@@ -45,7 +45,7 @@ impl Application {
         let listener = TcpListener::bind(&address).await?;
         let port = listener
             .local_addr()
-            .context(format!("failed to get local address from {address}"))?
+            .with_context(|| format!("failed to get local address from {address}"))?
             .port();
 
         let origins = std::env::var("ABH_CORS_ORIGINS")
@@ -133,6 +133,6 @@ impl Application {
             _ = terminate => {},
         }
 
-        println!("signal received, starting graceful shutdown");
+        tracing::info!("signal received, starting graceful shutdown");
     }
 }

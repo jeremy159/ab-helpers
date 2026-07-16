@@ -1,44 +1,69 @@
 use chrono::NaiveDate;
 
-use crate::{apply_bank_payment, mortgage_cutoff};
+use crate::{Money, apply_bank_payment, mortgage_cutoff};
 
 #[test]
 fn interest_rounds_when_round_true() {
     // balance=-50000 (owe $500), rate=0.00133978648017598, round=true
     // abs_prev=50000, interest=round(50000 * 0.001339786)=round(66.989)=67
-    let r = apply_bank_payment(-50000, 10000, 0.00133978648017598, true);
-    assert_eq!(r.interest, -67);
+    let r = apply_bank_payment(
+        Money::from_cents(-50000),
+        Money::from_cents(10000),
+        0.00133978648017598,
+        true,
+    );
+    assert_eq!(r.interest, Money::from_cents(-67));
 }
 
 #[test]
 fn interest_floors_when_round_false() {
     // Same as above but floor: floor(66.989)=66
-    let r = apply_bank_payment(-50000, 10000, 0.00133978648017598, false);
-    assert_eq!(r.interest, -66);
+    let r = apply_bank_payment(
+        Money::from_cents(-50000),
+        Money::from_cents(10000),
+        0.00133978648017598,
+        false,
+    );
+    assert_eq!(r.interest, Money::from_cents(-66));
 }
 
 #[test]
 fn new_balance_negative_account() {
     // prev=-50000, interest_abs=67(rounded), payment=10000
     // new_balance = -50000 - 67 + 10000 = -40067
-    let r = apply_bank_payment(-50000, 10000, 0.00133978648017598, true);
-    assert_eq!(r.new_balance, -40067);
+    let r = apply_bank_payment(
+        Money::from_cents(-50000),
+        Money::from_cents(10000),
+        0.00133978648017598,
+        true,
+    );
+    assert_eq!(r.new_balance, Money::from_cents(-40067));
 }
 
 #[test]
 fn new_balance_positive_account() {
     // prev=50000 (asset), payment=0, interest=67
     // new_balance = 50000 + 67 - 0 = 50067
-    let r = apply_bank_payment(50000, 0, 0.00133978648017598, true);
-    assert_eq!(r.interest, 67);
-    assert_eq!(r.new_balance, 50067);
+    let r = apply_bank_payment(
+        Money::from_cents(50000),
+        Money::from_cents(0),
+        0.00133978648017598,
+        true,
+    );
+    assert_eq!(r.interest, Money::from_cents(67));
+    assert_eq!(r.new_balance, Money::from_cents(50067));
 }
 
 #[test]
 fn zero_interest_when_zero_balance() {
-    let r = apply_bank_payment(0, 0, 0.00133978648017598, true);
-    assert_eq!(r.interest, 0);
-    assert_eq!(r.new_balance, 0);
+    let r = apply_bank_payment(
+        Money::from_cents(0),
+        Money::from_cents(0),
+        0.00133978648017598,
+        true,
+    );
+    assert_eq!(r.interest, Money::ZERO);
+    assert_eq!(r.new_balance, Money::ZERO);
 }
 
 // mortgage_cutoff tests — cutoff = last_tx_date - 1 month - 1 day.

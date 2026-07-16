@@ -28,12 +28,12 @@ tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
 http = "1"
 
 tokio.workspace = true
-futures.workspace = true
 async-trait.workspace = true
 
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
+chrono-tz.workspace = true
 
 config = { version = "0.14", features = ["toml"], default-features = false }
 
@@ -41,11 +41,11 @@ anyhow.workspace = true
 thiserror.workspace = true
 
 tracing.workspace = true
-tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+tracing-subscriber = { workspace = true }
 tracing-log = "0.2"
 
 uuid.workspace = true
-secrecy = { version = "0.8", features = ["serde"] }
+secrecy = { workspace = true }
 sqlx = { workspace = true, features = ["postgres"] }
 
 [dev-dependencies]

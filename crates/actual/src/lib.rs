@@ -14,8 +14,8 @@ pub use bridge::{BridgeConfig, BridgeInvoker};
 pub use client::{AccountRequests, Client, TransactionRequests};
 pub use error::{ActualResult, Error};
 pub use types::{
-    Account, AddTransactionResponse, BalanceResponse, ImportTransaction,
-    LastTransaction, ListAccountsResponse, SaveTransaction,
+    Account, AddTransactionResponse, BalanceResponse, ImportTransaction, LastTransaction,
+    ListAccountsResponse, SaveTransaction,
 };
 
 #[cfg(feature = "testutils")]

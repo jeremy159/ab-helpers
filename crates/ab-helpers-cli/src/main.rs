@@ -3,6 +3,7 @@ use std::process::ExitCode;
 use ab_helpers_server::config::Settings;
 use anyhow::Context;
 use clap::{Parser, Subcommand};
+use commands::error::CliError;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 mod commands;
@@ -30,9 +31,9 @@ enum SettingsCommand {
     /// Reconcile an account balance to a target value.
     SetBalance(commands::set_balance::SetBalanceArgs),
     /// Apply weekly Kia loan interest.
-    ApplyKiaInterest(commands::apply_kia_interest::ApplyKiaInterestArgs),
+    ApplyKiaInterest(commands::interest::InterestArgs),
     /// Apply monthly mortgage interest.
-    ApplyMortgageInterest(commands::apply_mortgage_interest::ApplyMortgageInterestArgs),
+    ApplyMortgageInterest(commands::interest::InterestArgs),
     /// Run the daemon scheduler (production entry point).
     Daemon,
 }
@@ -41,8 +42,9 @@ enum SettingsCommand {
 async fn main() -> ExitCode {
     init_tracing();
     match run().await {
-        Ok(code) => code,
-        Err(err) => {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(CliError::NotFound) => ExitCode::from(1),
+        Err(CliError::Failure(err)) => {
             tracing::error!("{:#}", err);
             ExitCode::from(3)
         }
@@ -58,7 +60,7 @@ fn init_tracing() {
         .init();
 }
 
-async fn run() -> anyhow::Result<ExitCode> {
+async fn run() -> Result<(), CliError> {
     let args = Cli::parse();
 
     tracing::info!(command = ?args.command, "abh CLI started");
@@ -73,10 +75,12 @@ async fn run() -> anyhow::Result<ExitCode> {
             match cmd {
                 SettingsCommand::SetBalance(a) => commands::set_balance::run(settings, a).await,
                 SettingsCommand::ApplyKiaInterest(a) => {
-                    commands::apply_kia_interest::run(settings, a).await
+                    commands::interest::run(settings, a, commands::interest::InterestKind::Kia)
+                        .await
                 }
                 SettingsCommand::ApplyMortgageInterest(a) => {
-                    commands::apply_mortgage_interest::run(settings, a).await
+                    commands::interest::run(settings, a, commands::interest::InterestKind::Mortgage)
+                        .await
                 }
                 SettingsCommand::Daemon => commands::daemon::run(settings).await,
             }

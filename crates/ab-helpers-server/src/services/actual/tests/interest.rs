@@ -1,8 +1,8 @@
 use super::super::*;
 use crate::config::InterestConfig;
-use ab_helpers_domain::InterestPeriod;
-use ab_helpers_domain::{DryRunOutcome, InterestSkip, LiveOutcome};
 use crate::execution::{DryRun, Live, PlanExecute};
+use ab_helpers_domain::InterestPeriod;
+use ab_helpers_domain::{DryRunOutcome, InterestSkip, LiveOutcome, Money};
 use actual::{
     Account, ActualResult, AddTransactionResponse, ImportTransaction, LastTransaction,
     SaveTransaction,
@@ -37,10 +37,7 @@ impl actual::AccountRequests for FakeClient {
 
 #[async_trait]
 impl actual::TransactionRequests for FakeClient {
-    async fn add_transaction(
-        &self,
-        _tx: SaveTransaction,
-    ) -> ActualResult<AddTransactionResponse> {
+    async fn add_transaction(&self, _tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
         Ok(AddTransactionResponse {
             id: "ignored".into(),
         })
@@ -108,7 +105,7 @@ async fn applies_interest_and_imports_transaction() {
             transaction_id,
             ..
         } => {
-            assert_eq!(interest, -66); // floor(50000 * 0.00133978...) = 66, signed negative
+            assert_eq!(interest, Money::from_cents(-66)); // floor(50000 * 0.00133978...) = 66, signed negative
             assert_eq!(transaction_id, "tx-interest-1");
         }
         other => panic!("unexpected: {other:?}"),
@@ -152,8 +149,10 @@ async fn dry_run_returns_would_apply() {
     let svc = InterestService::new(client, kia_config());
     let outcome = svc.run::<DryRun>().await.unwrap();
     match outcome {
-        DryRunOutcome::WouldApply { interest, notes, .. } => {
-            assert_eq!(interest, -66);
+        DryRunOutcome::WouldApply {
+            interest, notes, ..
+        } => {
+            assert_eq!(interest, Money::from_cents(-66));
             assert!(notes.contains("semaine"));
         }
         other => panic!("unexpected: {other:?}"),

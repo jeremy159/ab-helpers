@@ -19,9 +19,7 @@ port = 6379
 server_url = ""
 password = ""
 sync_id = ""
-cache_dir = ""
 node_bin = "node"
-bridge_script = ""
 
 [actual.kia]
 account_id   = ""
