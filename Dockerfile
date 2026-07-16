@@ -15,13 +15,16 @@ WORKDIR /bridge
 COPY crates/actual/bridge/package*.json ./
 RUN npm ci --omit=dev
 
-# Stage 3: runtime
+# Stage 3: Node binary source (glibc-compatible)
+FROM node:20-bookworm-slim AS node-bin
+
+# Stage 4: runtime
 FROM debian:bookworm-slim AS runner
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates nodejs \
+    && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=node-bin /usr/local/bin/node /usr/local/bin/node
 
 COPY --from=rust-builder /build/target/release/abh /usr/local/bin/abh
 COPY --from=node-setup /bridge/node_modules /app/bridge/node_modules

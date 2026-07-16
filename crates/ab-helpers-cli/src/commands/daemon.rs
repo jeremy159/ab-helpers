@@ -2,8 +2,11 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use ab_helpers_server::config::Settings;
-use ab_helpers_server::services::actual::InterestService;
+use ab_helpers_server::{
+    config::Settings,
+    execution::{Live, PlanExecute},
+    services::actual::InterestService,
+};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
@@ -54,11 +57,11 @@ fn save_state(data_dir: &str, state: &DaemonState) {
     let path = state_path(data_dir);
     tracing::trace!(path = %path.display(), "saving daemon state");
 
-    if let Some(parent) = path.parent() {
-        if let Err(err) = std::fs::create_dir_all(parent) {
-            tracing::warn!(?err, dir = %parent.display(), "failed to create state directory");
-            return;
-        }
+    if let Some(parent) = path.parent()
+        && let Err(err) = std::fs::create_dir_all(parent)
+    {
+        tracing::warn!(?err, dir = %parent.display(), "failed to create state directory");
+        return;
     }
 
     match serde_json::to_string_pretty(state) {
@@ -83,7 +86,7 @@ fn tick_was_missed(cron_5field: &str, last_run: DateTime<Utc>) -> bool {
     let next = schedule.after(&last_run).next();
     let now = Utc::now();
     tracing::trace!(last_run = %last_run, next = ?next, now = %now, "tick_was_missed check");
-    next.map_or(false, |next| next < now)
+    next.is_some_and(|next| next < now)
 }
 
 pub async fn run(settings: Settings) -> anyhow::Result<ExitCode> {
@@ -102,25 +105,25 @@ pub async fn run(settings: Settings) -> anyhow::Result<ExitCode> {
         let s = state.lock().await;
         let kia_cron = settings.scheduler.kia_interest_cron.clone();
         let mort_cron = settings.scheduler.mortgage_interest_cron.clone();
-        tracing::debug!(kia_cron = %kia_cron, mort_cron = %mort_cron, "checking for missed ticks");
+        tracing::debug!(%kia_cron, %mort_cron, "checking for missed ticks");
 
         let kia_missed = s
             .kia_interest_last_run
-            .map_or(true, |t| tick_was_missed(&kia_cron, t));
+            .is_none_or(|t| tick_was_missed(&kia_cron, t));
         let mort_missed = s
             .mortgage_interest_last_run
-            .map_or(true, |t| tick_was_missed(&mort_cron, t));
+            .is_none_or(|t| tick_was_missed(&mort_cron, t));
 
         drop(s); // release lock before async calls
 
         if kia_missed {
-            tracing::info!("kia interest tick was missed — running now");
+            tracing::info!("kia interest tick was missed - running now");
             run_kia(&settings, &state, &data_dir).await;
         } else {
             tracing::info!("kia interest tick is current, no catch-up needed");
         }
         if mort_missed {
-            tracing::info!("mortgage interest tick was missed — running now");
+            tracing::info!("mortgage interest tick was missed - running now");
             run_mortgage(&settings, &state, &data_dir).await;
         } else {
             tracing::info!("mortgage interest tick is current, no catch-up needed");
@@ -132,38 +135,38 @@ pub async fn run(settings: Settings) -> anyhow::Result<ExitCode> {
     let mut scheduler = JobScheduler::new().await?;
 
     {
-        let settings_kia = settings.clone();
-        let state_kia = Arc::clone(&state);
-        let data_dir_kia = data_dir.clone();
+        let settings = settings.clone();
+        let state = Arc::clone(&state);
+        let data_dir = data_dir.clone();
         let kia_expr = format!("0 {}", settings.scheduler.kia_interest_cron);
         tracing::debug!(expr = %kia_expr, "scheduling kia interest job");
 
         let kia_job = Job::new_async_tz(&kia_expr, tz, move |_uuid, _lock| {
-            let s = settings_kia.clone();
-            let st = Arc::clone(&state_kia);
-            let dd = data_dir_kia.clone();
+            let settings = settings.clone();
+            let state = Arc::clone(&state);
+            let data_dir = data_dir.clone();
             Box::pin(async move {
                 tracing::info!("scheduler: running kia interest");
-                run_kia(&s, &st, &dd).await;
+                run_kia(&settings, &state, &data_dir).await;
             })
         })?;
         scheduler.add(kia_job).await?;
     }
 
     {
-        let settings_mort = settings.clone();
-        let state_mort = Arc::clone(&state);
-        let data_dir_mort = data_dir.clone();
+        let settings = settings.clone();
+        let state = Arc::clone(&state);
+        let data_dir = data_dir.clone();
         let mort_expr = format!("0 {}", settings.scheduler.mortgage_interest_cron);
         tracing::debug!(expr = %mort_expr, "scheduling mortgage interest job");
 
         let mort_job = Job::new_async_tz(&mort_expr, tz, move |_uuid, _lock| {
-            let s = settings_mort.clone();
-            let st = Arc::clone(&state_mort);
-            let dd = data_dir_mort.clone();
+            let settings = settings.clone();
+            let state = Arc::clone(&state);
+            let data_dir = data_dir.clone();
             Box::pin(async move {
                 tracing::info!("scheduler: running mortgage interest");
-                run_mortgage(&s, &st, &dd).await;
+                run_mortgage(&settings, &state, &data_dir).await;
             })
         })?;
         scheduler.add(mort_job).await?;
@@ -172,7 +175,7 @@ pub async fn run(settings: Settings) -> anyhow::Result<ExitCode> {
     tracing::info!("daemon started");
     scheduler.start().await?;
 
-    // Block forever — the scheduler runs background tasks.
+    // Block forever: the scheduler runs background tasks.
     tokio::signal::ctrl_c().await.ok();
     tracing::info!("shutting down");
     scheduler.shutdown().await?;
@@ -186,7 +189,7 @@ async fn run_kia(settings: &Settings, state: &Arc<Mutex<DaemonState>>, data_dir:
     let config = settings.actual.kia.interest_config();
     let service = InterestService::new(client, config);
 
-    match service.apply().await {
+    match service.run::<Live>().await {
         Ok(outcome) => {
             tracing::info!(?outcome, "kia interest applied");
             let mut s = state.lock().await;
@@ -194,7 +197,7 @@ async fn run_kia(settings: &Settings, state: &Arc<Mutex<DaemonState>>, data_dir:
             save_state(data_dir, &s);
         }
         Err(err) => {
-            tracing::error!(?err, "kia interest failed — will retry next scheduled tick");
+            tracing::error!(?err, "kia interest failed: will retry next scheduled tick");
         }
     }
 }
@@ -204,7 +207,7 @@ async fn run_mortgage(settings: &Settings, state: &Arc<Mutex<DaemonState>>, data
     let config = settings.actual.mortgage.interest_config();
     let service = InterestService::new(client, config);
 
-    match service.apply().await {
+    match service.run::<Live>().await {
         Ok(outcome) => {
             tracing::info!(?outcome, "mortgage interest applied");
             let mut s = state.lock().await;
@@ -214,7 +217,7 @@ async fn run_mortgage(settings: &Settings, state: &Arc<Mutex<DaemonState>>, data
         Err(err) => {
             tracing::error!(
                 ?err,
-                "mortgage interest failed — will retry next scheduled tick"
+                "mortgage interest failed: will retry next scheduled tick"
             );
         }
     }

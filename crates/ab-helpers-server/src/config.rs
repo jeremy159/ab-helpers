@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::services::actual::{InterestConfig, InterestPeriod};
+use ab_helpers_domain::InterestPeriod;
 use db_postgres::{PgConnectOptions, PgSslMode};
 use secrecy::{ExposeSecret, Secret};
 use serde::Deserialize;
@@ -106,6 +106,14 @@ impl MortgageSettings {
     }
 }
 
+pub struct InterestConfig {
+    pub account_id: String,
+    pub rate: f64,
+    pub payee_name: String,
+    pub round: bool,
+    pub period: InterestPeriod,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SchedulerSettings {
     pub kia_interest_cron: String,
@@ -187,7 +195,7 @@ fn resource_root() -> PathBuf {
 /// Default location for the Actual local data cache when `cache_dir` is unset.
 /// Resolves to `$XDG_DATA_HOME/ab-helpers/cache` (or `~/.local/share/...`) so
 /// every CLI invocation reads/writes the same place regardless of the working
-/// directory — this also holds the daemon's idempotency state, so it must not
+/// directory - this also holds the daemon's idempotency state, so it must not
 /// live under a clearable cache dir. Docker overrides it via
 /// `ABH__ACTUAL__CACHE_DIR`.
 fn default_cache_dir() -> PathBuf {
@@ -263,10 +271,10 @@ struct Layer {
 /// Ordered config files to layer (later overrides earlier), before
 /// `ABH_`-prefixed env vars are applied on top. First match wins:
 ///
-/// 1. `ABH_CONFIG_FILE` — a single explicit file.
-/// 2. `ABH_CONFIG_DIR` — `base.toml` + `<ABH_ENVIRONMENT>.toml` in that dir.
-/// 3. `<exe>/configuration/base.toml` — dir next to the binary (Docker).
-/// 4. `~/.config/ab-helpers/{base,config}.toml` — installed CLI.
+/// 1. `ABH_CONFIG_FILE`: a single explicit file.
+/// 2. `ABH_CONFIG_DIR`: `base.toml` + `<ABH_ENVIRONMENT>.toml` in that dir.
+/// 3. `<exe>/configuration/base.toml`: dir next to the binary (Docker).
+/// 4. `~/.config/ab-helpers/{base,config}.toml`: installed CLI.
 /// 5. The repo `configuration/` dir, found by walking up from the CWD (dev).
 fn config_layers() -> Result<Vec<Layer>, config::ConfigError> {
     if let Some(f) = non_empty_var("ABH_CONFIG_FILE") {

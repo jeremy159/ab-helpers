@@ -11,6 +11,7 @@ default = []
 testutils = ["dep:mockall", "dep:fake", "dep:rand"]
 
 [dependencies]
+anyhow.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

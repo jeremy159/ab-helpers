@@ -54,7 +54,7 @@ pub fn run(args: InitArgs) -> anyhow::Result<ExitCode> {
         bail!("no base.toml in {}", src_dir.display());
     }
 
-    // base.toml is the shipped defaults floor — always refreshed so re-running
+    // base.toml is the shipped defaults floor - always refreshed so re-running
     // `init` forwards project updates. Your overrides live in config.toml.
     let dest_base = dest.join("base.toml");
     let refreshed = dest_base.exists();
