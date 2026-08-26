@@ -1,35 +1,14 @@
 use crate::config::InterestConfig;
 use crate::error::{ABHelpersResult, AppError};
-use crate::execution::{DryRun, Live, PlanExecute, PlanOutcome, RunMode};
-use ab_helpers_domain::{DryRunOutcome, InterestPlan, InterestSkip, LiveOutcome, Money};
+use crate::execution::{Live, PlanExecute, PlanOutcome, RunMode};
+use ab_helpers_domain::{InterestPlan, InterestSkip, LiveOutcome, Money};
 use std::sync::Arc;
 
-use super::ActualClient;
+use super::{ActualClient, ActualReadClient, ActualWriteClient};
 
-/// Dry-run apply: ignores the client and projects the plan into a preview outcome.
+/// Live apply: writes the interest transaction to Actual via the write client.
 #[async_trait::async_trait]
-impl<W: Send + Sync> RunMode<InterestSkip, InterestPlan, W> for DryRun {
-    type Outcome = DryRunOutcome;
-
-    fn on_skip(reason: InterestSkip) -> DryRunOutcome {
-        DryRunOutcome::Skip(reason)
-    }
-
-    async fn apply(_writer: &W, plan: InterestPlan) -> ABHelpersResult<DryRunOutcome> {
-        Ok(DryRunOutcome::WouldApply {
-            last_tx_date: plan.last_tx_date,
-            cutoff: plan.cutoff,
-            balance: plan.balance,
-            interest: plan.interest,
-            new_balance: plan.new_balance,
-            notes: plan.notes,
-        })
-    }
-}
-
-/// Live apply: writes the interest transaction to Actual via the client.
-#[async_trait::async_trait]
-impl<W: ActualClient + 'static> RunMode<InterestSkip, InterestPlan, W> for Live {
+impl<W: ActualWriteClient + 'static> RunMode<InterestSkip, InterestPlan, W> for Live {
     type Outcome = LiveOutcome;
 
     fn on_skip(reason: InterestSkip) -> LiveOutcome {
@@ -59,49 +38,74 @@ impl<W: ActualClient + 'static> RunMode<InterestSkip, InterestPlan, W> for Live 
     }
 }
 
-pub struct InterestService<C> {
-    client: Arc<C>,
-    config: InterestConfig,
+/// Read-only context for the plan phase. Contains only what `plan()` needs —
+/// the write client is absent, so writes are structurally unreachable from `plan()`.
+pub struct InterestPlanCtx<R> {
+    pub reader: Arc<R>,
+    pub config: InterestConfig,
 }
 
-impl<C: ActualClient + 'static> InterestService<C> {
+/// Service that computes and optionally applies interest for one Actual account.
+///
+/// `R` is the read client (used in `plan()`); `W` is the write client (used in
+/// `Live::apply`). In production both are the same concrete `Client` — use
+/// `InterestService::new` which takes a single `Arc<C: ActualClient>`.
+pub struct InterestService<R, W = R> {
+    plan_ctx: InterestPlanCtx<R>,
+    writer: Arc<W>,
+}
+
+impl<C: ActualClient + 'static> InterestService<C, C> {
     pub fn new(client: Arc<C>, config: InterestConfig) -> Self {
-        Self { client, config }
+        Self {
+            plan_ctx: InterestPlanCtx {
+                reader: Arc::clone(&client),
+                config,
+            },
+            writer: client,
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl<C: ActualClient + 'static> PlanExecute for InterestService<C> {
+impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
+    for InterestService<R, W>
+{
     type Skip = InterestSkip;
     type Plan = InterestPlan;
-    type Writer = C;
+    type PlanCtx = InterestPlanCtx<R>;
+    type Writer = W;
 
-    fn writer(&self) -> &C {
-        self.client.as_ref()
+    fn plan_ctx(&self) -> &InterestPlanCtx<R> {
+        &self.plan_ctx
     }
 
-    async fn plan(&self) -> ABHelpersResult<PlanOutcome<InterestSkip, InterestPlan>> {
+    fn writer(&self) -> &W {
+        self.writer.as_ref()
+    }
+
+    async fn plan(ctx: &InterestPlanCtx<R>) -> ABHelpersResult<PlanOutcome<InterestSkip, InterestPlan>> {
         use ab_helpers_domain::apply_bank_payment;
 
-        let accounts = self.client.list_accounts().await?;
+        let accounts = ctx.reader.list_accounts().await?;
         let account = accounts
             .iter()
-            .find(|a| a.id == self.config.account_id)
-            .ok_or_else(|| AppError::ActualAccountNotFound(self.config.account_id.clone()))?;
+            .find(|a| a.id == ctx.config.account_id)
+            .ok_or_else(|| AppError::ActualAccountNotFound(ctx.config.account_id.clone()))?;
 
         if account.closed {
             return Ok(PlanOutcome::Skip(InterestSkip::AccountClosed));
         }
 
-        let last_tx = self.client.get_last_transaction(&account.id).await?;
+        let last_tx = ctx.reader.get_last_transaction(&account.id).await?;
 
-        let cutoff = self.config.period.cutoff_for(last_tx.date);
+        let cutoff = ctx.config.period.cutoff_for(last_tx.date);
 
-        let balance_cents = self.client.get_balance_at(&account.id, cutoff).await?;
+        let balance_cents = ctx.reader.get_balance_at(&account.id, cutoff).await?;
         let balance = Money::from_cents(balance_cents);
 
         let payment = Money::from_cents(last_tx.amount);
-        let result = apply_bank_payment(balance, payment, self.config.rate, self.config.round);
+        let result = apply_bank_payment(balance, payment, ctx.config.rate, ctx.config.round);
 
         if result.interest.is_zero() {
             return Ok(PlanOutcome::Skip(InterestSkip::NoInterest {
@@ -112,8 +116,8 @@ impl<C: ActualClient + 'static> PlanExecute for InterestService<C> {
 
         let notes = format!(
             "Intérêt pour 1 {} à {:.2}%",
-            self.config.period.notes_label(),
-            self.config.rate * 100.0
+            ctx.config.period.notes_label(),
+            ctx.config.rate * 100.0
         );
 
         Ok(PlanOutcome::Ready(InterestPlan {
@@ -124,7 +128,7 @@ impl<C: ActualClient + 'static> PlanExecute for InterestService<C> {
             interest: result.interest,
             new_balance: result.new_balance,
             notes,
-            payee_name: self.config.payee_name.clone(),
+            payee_name: ctx.config.payee_name.clone(),
         }))
     }
 }

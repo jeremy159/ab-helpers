@@ -205,6 +205,12 @@ async fn run_interest(
     let service = InterestService::new(client, config);
 
     match service.run::<Live>().await {
+        Ok(ab_helpers_domain::LiveOutcome::Skip(reason)) => {
+            tracing::info!(?reason, kind = label, "interest skipped");
+            let mut s = state.lock().await;
+            s.set_last_run(kind, Utc::now());
+            save_state(data_dir, &s);
+        }
         Ok(outcome) => {
             tracing::info!(?outcome, kind = label, "interest applied");
             let mut s = state.lock().await;

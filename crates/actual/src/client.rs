@@ -32,23 +32,25 @@ impl Client {
     }
 }
 
+/// Read-only operations: account queries and balance reads.
 #[async_trait]
-pub trait AccountRequests: Send + Sync {
+pub trait ActualReadRequests: Send + Sync {
     async fn list_accounts(&self) -> ActualResult<Vec<Account>>;
     async fn get_account_balance(&self, account_id: &str) -> ActualResult<i64>;
     async fn get_last_transaction(&self, account_id: &str) -> ActualResult<LastTransaction>;
-    async fn ensure_payee(&self, name: &str) -> ActualResult<String>;
+    async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64>;
 }
 
+/// Write operations: creating payees and posting transactions.
 #[async_trait]
-pub trait TransactionRequests: Send + Sync {
+pub trait ActualWriteRequests: Send + Sync {
+    async fn ensure_payee(&self, name: &str) -> ActualResult<String>;
     async fn add_transaction(&self, tx: SaveTransaction) -> ActualResult<AddTransactionResponse>;
-    async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64>;
     async fn import_transaction(&self, tx: ImportTransaction) -> ActualResult<String>;
 }
 
 #[async_trait]
-impl AccountRequests for Client {
+impl ActualReadRequests for Client {
     async fn list_accounts(&self) -> ActualResult<Vec<Account>> {
         let value = self.invoker.invoke("list-accounts", json!({})).await?;
         let resp: ListAccountsResponse = serde_json::from_value(value)?;
@@ -76,27 +78,6 @@ impl AccountRequests for Client {
         })
     }
 
-    async fn ensure_payee(&self, name: &str) -> ActualResult<String> {
-        let value = self
-            .invoker
-            .invoke("ensure-payee", json!({ "name": name }))
-            .await?;
-        let resp: EnsurePayeeResponse = serde_json::from_value(value)?;
-        Ok(resp.id)
-    }
-}
-
-#[async_trait]
-impl TransactionRequests for Client {
-    async fn add_transaction(&self, tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
-        let value = self
-            .invoker
-            .invoke("add-transaction", serde_json::to_value(&tx)?)
-            .await?;
-        let resp: AddTransactionResponse = serde_json::from_value(value)?;
-        Ok(resp)
-    }
-
     async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64> {
         let value = self
             .invoker
@@ -107,6 +88,27 @@ impl TransactionRequests for Client {
             .await?;
         let resp: BalanceResponse = serde_json::from_value(value)?;
         Ok(resp.balance)
+    }
+}
+
+#[async_trait]
+impl ActualWriteRequests for Client {
+    async fn ensure_payee(&self, name: &str) -> ActualResult<String> {
+        let value = self
+            .invoker
+            .invoke("ensure-payee", json!({ "name": name }))
+            .await?;
+        let resp: EnsurePayeeResponse = serde_json::from_value(value)?;
+        Ok(resp.id)
+    }
+
+    async fn add_transaction(&self, tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
+        let value = self
+            .invoker
+            .invoke("add-transaction", serde_json::to_value(&tx)?)
+            .await?;
+        let resp: AddTransactionResponse = serde_json::from_value(value)?;
+        Ok(resp)
     }
 
     async fn import_transaction(&self, tx: ImportTransaction) -> ActualResult<String> {
@@ -129,33 +131,33 @@ impl TransactionRequests for Client {
 
 #[cfg(feature = "testutils")]
 mockall::mock! {
-    pub AccountRequestsImpl {}
+    pub ActualReadRequestsImpl {}
 
-    impl Clone for AccountRequestsImpl {
+    impl Clone for ActualReadRequestsImpl {
         fn clone(&self) -> Self;
     }
 
     #[async_trait]
-    impl AccountRequests for AccountRequestsImpl {
+    impl ActualReadRequests for ActualReadRequestsImpl {
         async fn list_accounts(&self) -> ActualResult<Vec<Account>>;
         async fn get_account_balance(&self, account_id: &str) -> ActualResult<i64>;
         async fn get_last_transaction(&self, account_id: &str) -> ActualResult<LastTransaction>;
-        async fn ensure_payee(&self, name: &str) -> ActualResult<String>;
+        async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64>;
     }
 }
 
 #[cfg(feature = "testutils")]
 mockall::mock! {
-    pub TransactionRequestsImpl {}
+    pub ActualWriteRequestsImpl {}
 
-    impl Clone for TransactionRequestsImpl {
+    impl Clone for ActualWriteRequestsImpl {
         fn clone(&self) -> Self;
     }
 
     #[async_trait]
-    impl TransactionRequests for TransactionRequestsImpl {
+    impl ActualWriteRequests for ActualWriteRequestsImpl {
+        async fn ensure_payee(&self, name: &str) -> ActualResult<String>;
         async fn add_transaction(&self, tx: SaveTransaction) -> ActualResult<AddTransactionResponse>;
-        async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64>;
         async fn import_transaction(&self, tx: ImportTransaction) -> ActualResult<String>;
     }
 }

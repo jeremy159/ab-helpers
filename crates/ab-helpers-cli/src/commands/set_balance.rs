@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use ab_helpers_domain::{Money, ReconcileOutcome};
+use ab_helpers_domain::{Money, ReconcileOutcome, ReconcileSkip};
 use anyhow::Context as _;
 
-use super::error::CliError;
+use super::error::{map_app_error, CliError};
 use ab_helpers_server::config::Settings;
-use ab_helpers_server::error::AppError;
-use ab_helpers_server::services::actual::{Reconcile, ReconcileOptions, ReconcileService};
+use ab_helpers_server::execution::{DryRun, Live, PlanExecute, Preview};
+use ab_helpers_server::services::actual::{ReconcileOptions, ReconcileService};
 use clap::Args;
 
 #[derive(Args, Debug)]
@@ -37,12 +37,7 @@ pub struct SetBalanceArgs {
 pub async fn run(settings: Settings, args: SetBalanceArgs) -> Result<(), CliError> {
     tracing::info!(account = %args.account, amount = %args.amount, dry_run = args.dry_run, "set-balance started");
 
-    let client = settings.actual.client();
-    let service = ReconcileService::new(Arc::new(client));
-
-    if args.dry_run {
-        return run_dry_run(&settings, &args).await;
-    }
+    let client = Arc::new(settings.actual.client());
 
     let opts = ReconcileOptions {
         date: args
@@ -57,98 +52,36 @@ pub async fn run(settings: Settings, args: SetBalanceArgs) -> Result<(), CliErro
         notes: args.notes,
     };
 
+    let service = ReconcileService::new(client, args.account.clone(), args.amount, opts);
+
+    if args.dry_run {
+        tracing::debug!(account = %args.account, "previewing reconcile (dry-run)");
+        match service.run::<DryRun>().await.map_err(map_reconcile_error)? {
+            Preview::Skip(ReconcileSkip::AlreadyAtTarget { balance }) => {
+                tracing::info!(account = %args.account, %balance, "account already at target (dry-run)");
+                println!(
+                    "No adjustment needed\n  Account:         {}\n  Current balance: ${balance}\n  Target balance:  ${}\n  No transaction would be created.",
+                    args.account, args.amount
+                );
+            }
+            Preview::WouldApply(plan) => {
+                tracing::info!(account = %plan.account_name, diff = %plan.diff, "dry-run: would adjust balance");
+                println!(
+                    "Would adjust balance\n  Account:         {}\n  Current balance: ${}\n  Target balance:  ${}\n  Adjustment (dry): {}",
+                    plan.account_name,
+                    plan.current,
+                    plan.target,
+                    plan.diff.signed_str()
+                );
+            }
+        }
+        return Ok(());
+    }
+
     tracing::debug!(account = %args.account, "reconciling account balance");
-    match service
-        .reconcile_account_to(&args.account, args.amount, opts)
-        .await
-    {
-        Ok(outcome) => {
-            print_outcome(&args.account, &outcome);
-            Ok(())
-        }
-        Err(AppError::ActualAccountNotFound(name)) => {
-            tracing::warn!(account = %name, "account not found in Actual");
-            Err(CliError::NotFound)
-        }
-        Err(AppError::ActualAccountAmbiguous { name, matches }) => {
-            tracing::warn!(account = %name, matches = %matches.join(", "), "account name is ambiguous");
-            Err(CliError::NotFound)
-        }
-        Err(err) => Err(CliError::Failure(
-            anyhow::Error::from(err).context("reconciliation failed"),
-        )),
-    }
-}
-
-async fn run_dry_run(settings: &Settings, args: &SetBalanceArgs) -> Result<(), CliError> {
-    use actual::{AccountRequests, Client};
-
-    tracing::debug!(account = %args.account, "fetching accounts for dry-run");
-    let client = Client::new(settings.actual.bridge_config());
-    let accounts = client
-        .list_accounts()
-        .await
-        .map_err(|e| CliError::Failure(e.into()))?;
-    tracing::trace!(count = accounts.len(), "accounts fetched");
-
-    let matches: Vec<&actual::Account> = accounts
-        .iter()
-        .filter(|a| !a.closed && a.name == args.account)
-        .collect();
-    let account = match matches.as_slice() {
-        [] => {
-            tracing::warn!(account = %args.account, "account not found in Actual (dry-run)");
-            return Err(CliError::NotFound);
-        }
-        [only] => *only,
-        many => {
-            let names = many
-                .iter()
-                .map(|a| a.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            tracing::warn!(account = %args.account, matches = %names, "account name is ambiguous (dry-run)");
-            return Err(CliError::NotFound);
-        }
-    };
-    let current = Money::from_cents(
-        client
-            .get_account_balance(&account.id)
-            .await
-            .map_err(|e| CliError::Failure(e.into()))?,
-    );
-    let diff = args.amount - current;
-    tracing::debug!(account_id = %account.id, current = %current, target = %args.amount, diff = %diff, "dry-run balance computed");
-
-    if diff.is_zero() {
-        tracing::info!(account = %account.name, "dry-run: account already at target");
-        println!(
-            "No adjustment needed\n  Account:         {}\n  Current balance: ${current}\n  Target balance:  ${}\n  No transaction would be created.",
-            account.name, args.amount
-        );
-    } else {
-        tracing::info!(account = %account.name, diff = %diff, "dry-run: would adjust balance");
-        println!(
-            "Would adjust balance\n  Account:         {}\n  Current balance: ${current}\n  Target balance:  ${}\n  Adjustment (dry): {}",
-            account.name,
-            args.amount,
-            diff.signed_str()
-        );
-    }
-    Ok(())
-}
-
-fn print_outcome(account_name: &str, outcome: &ReconcileOutcome) {
-    match outcome {
+    match service.run::<Live>().await.map_err(map_reconcile_error)? {
         ReconcileOutcome::AlreadyAtTarget { balance } => {
-            tracing::info!(
-                account = %account_name,
-                balance = %balance,
-                "account already at target"
-            );
-            println!(
-                "Account already at target\n  Account: {account_name}\n  Balance: ${balance}\n  No transaction created."
-            );
+            print_already_at_target(&args.account, balance);
         }
         ReconcileOutcome::Adjusted {
             previous,
@@ -156,16 +89,36 @@ fn print_outcome(account_name: &str, outcome: &ReconcileOutcome) {
             adjustment,
             transaction_id,
         } => {
-            tracing::info!(
-                account = %account_name,
-                adjustment = %adjustment,
-                transaction_id = %transaction_id,
-                "balance adjusted"
-            );
-            println!(
-                "Balance adjusted\n  Account:          {account_name}\n  Previous balance: ${previous}\n  Target balance:   ${target}\n  Adjustment:       {}\n  Transaction:      {transaction_id}",
-                adjustment.signed_str()
-            );
+            print_adjusted(&args.account, previous, target, adjustment, &transaction_id);
         }
     }
+    Ok(())
+}
+
+fn map_reconcile_error(err: ab_helpers_server::error::AppError) -> CliError {
+    match map_app_error(err) {
+        CliError::Failure(e) => CliError::Failure(e.context("reconciliation failed")),
+        other => other,
+    }
+}
+
+fn print_already_at_target(account_name: &str, balance: Money) {
+    tracing::info!(account = %account_name, %balance, "account already at target");
+    println!(
+        "Account already at target\n  Account: {account_name}\n  Balance: ${balance}\n  No transaction created."
+    );
+}
+
+fn print_adjusted(
+    account_name: &str,
+    previous: Money,
+    target: Money,
+    adjustment: Money,
+    transaction_id: &str,
+) {
+    tracing::info!(account = %account_name, %adjustment, %transaction_id, "balance adjusted");
+    println!(
+        "Balance adjusted\n  Account:          {account_name}\n  Previous balance: ${previous}\n  Target balance:   ${target}\n  Adjustment:       {}\n  Transaction:      {transaction_id}",
+        adjustment.signed_str()
+    );
 }

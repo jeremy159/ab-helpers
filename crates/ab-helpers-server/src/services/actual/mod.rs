@@ -6,12 +6,14 @@ mod tests;
 pub use interest::*;
 pub use reconcile::*;
 
-pub trait ActualClient:
-    actual::AccountRequests + actual::TransactionRequests + Send + Sync
-{
-}
+/// Blanket alias for types that can only read from Actual.
+pub trait ActualReadClient: actual::ActualReadRequests + Send + Sync {}
+impl<T: actual::ActualReadRequests + Send + Sync> ActualReadClient for T {}
 
-impl<T> ActualClient for T where
-    T: actual::AccountRequests + actual::TransactionRequests + Send + Sync
-{
-}
+/// Blanket alias for types that can only write to Actual.
+pub trait ActualWriteClient: actual::ActualWriteRequests + Send + Sync {}
+impl<T: actual::ActualWriteRequests + Send + Sync> ActualWriteClient for T {}
+
+/// Blanket alias for types that can both read and write.
+pub trait ActualClient: ActualReadClient + ActualWriteClient {}
+impl<T: ActualReadClient + ActualWriteClient> ActualClient for T {}

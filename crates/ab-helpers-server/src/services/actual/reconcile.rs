@@ -1,22 +1,13 @@
 use std::sync::Arc;
 
-use ab_helpers_domain::{Money, ReconcileOutcome};
+use ab_helpers_domain::{Money, ReconcileOutcome, ReconcileSkip};
 use async_trait::async_trait;
 use chrono::NaiveDate;
 
 use crate::error::{ABHelpersResult, AppError};
+use crate::execution::{Live, PlanExecute, PlanOutcome, RunMode};
 
-use super::ActualClient;
-
-#[async_trait]
-pub trait Reconcile: Send + Sync {
-    async fn reconcile_account_to(
-        &self,
-        account_name: &str,
-        target: Money,
-        opts: ReconcileOptions,
-    ) -> ABHelpersResult<ReconcileOutcome>;
-}
+use super::{ActualClient, ActualReadClient, ActualWriteClient};
 
 #[derive(Debug, Clone, Default)]
 pub struct ReconcileOptions {
@@ -28,36 +19,122 @@ pub struct ReconcileOptions {
     pub notes: Option<String>,
 }
 
-pub struct ReconcileService<C> {
-    client: Arc<C>,
+/// Intermediate state produced by the plan phase.
+///
+/// All fields are fully resolved — `payee_name` has the default applied,
+/// so this is a faithful description of what `Live::apply` will write.
+#[derive(Debug)]
+pub struct ReconcilePlan {
+    pub account_id: String,
+    pub account_name: String,
+    pub current: Money,
+    pub target: Money,
+    pub diff: Money,
+    pub payee_name: String,
+    pub date: Option<chrono::NaiveDate>,
+    pub notes: Option<String>,
 }
 
-impl<C> ReconcileService<C> {
-    pub fn new(client: Arc<C>) -> Self {
-        Self { client }
+/// Live apply: posts the adjustment transaction.
+#[async_trait]
+impl<W: ActualWriteClient + 'static> RunMode<ReconcileSkip, ReconcilePlan, W> for Live {
+    type Outcome = ReconcileOutcome;
+
+    fn on_skip(reason: ReconcileSkip) -> ReconcileOutcome {
+        match reason {
+            ReconcileSkip::AlreadyAtTarget { balance } => {
+                ReconcileOutcome::AlreadyAtTarget { balance }
+            }
+        }
+    }
+
+    async fn apply(writer: &W, plan: ReconcilePlan) -> ABHelpersResult<ReconcileOutcome> {
+        let tx = actual::SaveTransaction {
+            account_id: plan.account_id,
+            amount: plan.diff.cents(),
+            payee_name: Some(plan.payee_name),
+            notes: plan.notes,
+            date: plan.date.map(|d| d.to_string()),
+        };
+
+        let resp = writer.add_transaction(tx).await?;
+
+        Ok(ReconcileOutcome::Adjusted {
+            previous: plan.current,
+            target: plan.target,
+            adjustment: plan.diff,
+            transaction_id: resp.id,
+        })
+    }
+}
+
+/// Read-only context for the plan phase. Contains only what `plan()` needs —
+/// the write client is absent, so writes are structurally unreachable from `plan()`.
+pub struct ReconcilePlanCtx<R> {
+    pub reader: Arc<R>,
+    pub account_name: String,
+    pub target: Money,
+    pub opts: ReconcileOptions,
+}
+
+/// Service that reconciles one Actual account to a target balance.
+///
+/// `R` is the read client (used in `plan()`); `W` is the write client (used in
+/// `Live::apply`). In production both are the same concrete `Client` — use
+/// `ReconcileService::new` which takes a single `Arc<C: ActualClient>`.
+pub struct ReconcileService<R, W = R> {
+    plan_ctx: ReconcilePlanCtx<R>,
+    writer: Arc<W>,
+}
+
+impl<C: ActualClient + 'static> ReconcileService<C, C> {
+    pub fn new(
+        client: Arc<C>,
+        account_name: String,
+        target: Money,
+        opts: ReconcileOptions,
+    ) -> Self {
+        Self {
+            plan_ctx: ReconcilePlanCtx {
+                reader: Arc::clone(&client),
+                account_name,
+                target,
+                opts,
+            },
+            writer: client,
+        }
     }
 }
 
 #[async_trait]
-impl<C> Reconcile for ReconcileService<C>
-where
-    C: ActualClient + 'static,
+impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
+    for ReconcileService<R, W>
 {
-    async fn reconcile_account_to(
-        &self,
-        account_name: &str,
-        target: Money,
-        opts: ReconcileOptions,
-    ) -> ABHelpersResult<ReconcileOutcome> {
-        let accounts = self.client.list_accounts().await?;
+    type Skip = ReconcileSkip;
+    type Plan = ReconcilePlan;
+    type PlanCtx = ReconcilePlanCtx<R>;
+    type Writer = W;
+
+    fn plan_ctx(&self) -> &ReconcilePlanCtx<R> {
+        &self.plan_ctx
+    }
+
+    fn writer(&self) -> &W {
+        self.writer.as_ref()
+    }
+
+    async fn plan(ctx: &ReconcilePlanCtx<R>) -> ABHelpersResult<PlanOutcome<ReconcileSkip, ReconcilePlan>> {
+        let accounts = ctx.reader.list_accounts().await?;
 
         let matches: Vec<&actual::Account> = accounts
             .iter()
-            .filter(|a| !a.closed && a.name == account_name)
+            .filter(|a| !a.closed && a.name == ctx.account_name)
             .collect();
 
         let account = match matches.as_slice() {
-            [] => return Err(AppError::ActualAccountNotFound(account_name.to_string())),
+            [] => {
+                return Err(AppError::ActualAccountNotFound(ctx.account_name.clone()))
+            }
             [only] => *only,
             many => {
                 let matches = many
@@ -65,39 +142,38 @@ where
                     .map(|a| format!("{} ({})", a.name, a.id))
                     .collect::<Vec<_>>();
                 return Err(AppError::ActualAccountAmbiguous {
-                    name: account_name.to_string(),
+                    name: ctx.account_name.clone(),
                     matches,
                 });
             }
         };
 
-        let current_cents = self.client.get_account_balance(&account.id).await?;
+        let current_cents = ctx.reader.get_account_balance(&account.id).await?;
         let current = Money::from_cents(current_cents);
-        let diff = target - current;
+        let diff = ctx.target - current;
 
         if diff.is_zero() {
-            return Ok(ReconcileOutcome::AlreadyAtTarget { balance: current });
+            return Ok(PlanOutcome::Skip(ReconcileSkip::AlreadyAtTarget {
+                balance: current,
+            }));
         }
 
-        let payee_name = opts
+        let payee_name = ctx
+            .opts
             .payee_name
+            .clone()
             .unwrap_or_else(|| "Balance Adjustment".to_string());
-        let tx = actual::SaveTransaction {
+
+        Ok(PlanOutcome::Ready(ReconcilePlan {
             account_id: account.id.clone(),
-            amount: diff.cents(),
-            payee_name: Some(payee_name),
-            notes: opts.notes,
-            date: opts.date.map(|d| d.to_string()),
-        };
-
-        let resp = self.client.add_transaction(tx).await?;
-
-        Ok(ReconcileOutcome::Adjusted {
-            previous: current,
-            target,
-            adjustment: diff,
-            transaction_id: resp.id,
-        })
+            account_name: account.name.clone(),
+            current,
+            target: ctx.target,
+            diff,
+            payee_name,
+            date: ctx.opts.date,
+            notes: ctx.opts.notes.clone(),
+        }))
     }
 }
 
@@ -109,9 +185,8 @@ mod tests {
     use async_trait::async_trait;
 
     use super::*;
+    use crate::execution::{DryRun, Preview};
 
-    /// Hand-written fake that satisfies both client traits, since combining
-    /// two mockall mocks into one type isn't trivial.
     struct FakeClient {
         accounts: Vec<actual::Account>,
         balance_cents: i64,
@@ -119,7 +194,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl actual::AccountRequests for FakeClient {
+    impl actual::ActualReadRequests for FakeClient {
         async fn list_accounts(&self) -> actual::ActualResult<Vec<actual::Account>> {
             Ok(self.accounts.clone())
         }
@@ -132,13 +207,20 @@ mod tests {
         ) -> actual::ActualResult<actual::LastTransaction> {
             unimplemented!("not needed for reconcile tests")
         }
-        async fn ensure_payee(&self, _name: &str) -> actual::ActualResult<String> {
+        async fn get_balance_at(
+            &self,
+            _id: &str,
+            _date: chrono::NaiveDate,
+        ) -> actual::ActualResult<i64> {
             unimplemented!("not needed for reconcile tests")
         }
     }
 
     #[async_trait]
-    impl actual::TransactionRequests for FakeClient {
+    impl actual::ActualWriteRequests for FakeClient {
+        async fn ensure_payee(&self, _name: &str) -> actual::ActualResult<String> {
+            unimplemented!("not needed for reconcile tests")
+        }
         async fn add_transaction(
             &self,
             tx: actual::SaveTransaction,
@@ -147,13 +229,6 @@ mod tests {
             Ok(actual::AddTransactionResponse {
                 id: "tx-123".into(),
             })
-        }
-        async fn get_balance_at(
-            &self,
-            _id: &str,
-            _date: chrono::NaiveDate,
-        ) -> actual::ActualResult<i64> {
-            unimplemented!("not needed for reconcile tests")
         }
         async fn import_transaction(
             &self,
@@ -172,20 +247,32 @@ mod tests {
         }
     }
 
+    fn make_client(balance_cents: i64) -> Arc<FakeClient> {
+        Arc::new(FakeClient {
+            accounts: vec![account("a-1", "Checking")],
+            balance_cents,
+            last_tx: Default::default(),
+        })
+    }
+
+    fn svc_with_client(
+        client: Arc<FakeClient>,
+        target_cents: i64,
+    ) -> ReconcileService<FakeClient> {
+        ReconcileService::new(
+            client,
+            "Checking".to_string(),
+            Money::from_cents(target_cents),
+            Default::default(),
+        )
+    }
+
     #[tokio::test]
     async fn reports_already_at_target_when_diff_is_zero() {
-        let client = Arc::new(FakeClient {
-            accounts: vec![account("a-1", "Checking")],
-            balance_cents: 5000,
-            last_tx: Default::default(),
-        });
-        let svc = ReconcileService::new(client.clone());
+        let client = make_client(5000);
+        let svc = svc_with_client(Arc::clone(&client), 5000);
 
-        let outcome = svc
-            .reconcile_account_to("Checking", Money::from_cents(5000), Default::default())
-            .await
-            .unwrap();
-
+        let outcome = svc.run::<Live>().await.unwrap();
         assert_eq!(
             outcome,
             ReconcileOutcome::AlreadyAtTarget {
@@ -196,19 +283,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dry_run_reports_already_at_target_and_writes_nothing() {
+        let client = make_client(5000);
+        let svc = svc_with_client(Arc::clone(&client), 5000);
+
+        let outcome = svc.run::<DryRun>().await.unwrap();
+        assert!(matches!(
+            outcome,
+            Preview::Skip(ReconcileSkip::AlreadyAtTarget { .. })
+        ));
+        assert!(client.last_tx.lock().unwrap().is_none(), "dry-run must not write");
+    }
+
+    #[tokio::test]
     async fn posts_diff_when_balance_below_target() {
-        let client = Arc::new(FakeClient {
-            accounts: vec![account("a-1", "Checking")],
-            balance_cents: 110_000,
-            last_tx: Default::default(),
-        });
-        let svc = ReconcileService::new(client.clone());
+        let client = make_client(110_000);
+        let svc = svc_with_client(Arc::clone(&client), 123_456);
 
-        let outcome = svc
-            .reconcile_account_to("Checking", Money::from_cents(123_456), Default::default())
-            .await
-            .unwrap();
-
+        let outcome = svc.run::<Live>().await.unwrap();
         match outcome {
             ReconcileOutcome::Adjusted {
                 previous,
@@ -231,18 +323,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dry_run_returns_would_apply_with_plan_and_writes_nothing() {
+        let client = make_client(110_000);
+        let svc = svc_with_client(Arc::clone(&client), 123_456);
+        let outcome = svc.run::<DryRun>().await.unwrap();
+        match outcome {
+            Preview::WouldApply(plan) => {
+                assert_eq!(plan.current, Money::from_cents(110_000));
+                assert_eq!(plan.target, Money::from_cents(123_456));
+                assert_eq!(plan.diff, Money::from_cents(13_456));
+                assert_eq!(plan.payee_name, "Balance Adjustment");
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+        assert!(client.last_tx.lock().unwrap().is_none(), "dry-run must not write");
+    }
+
+    #[tokio::test]
+    async fn plan_resolves_opts_into_transaction() {
+        let client = make_client(110_000);
+        let opts = ReconcileOptions {
+            date: Some(chrono::NaiveDate::from_ymd_opt(2025, 3, 15).unwrap()),
+            payee_name: Some("Custom Payee".to_string()),
+            notes: Some("my note".to_string()),
+        };
+        let svc = ReconcileService::new(
+            Arc::clone(&client),
+            "Checking".to_string(),
+            Money::from_cents(123_456),
+            opts,
+        );
+        svc.run::<Live>().await.unwrap();
+
+        let tx = client.last_tx.lock().unwrap().clone().expect("tx posted");
+        assert_eq!(tx.payee_name.as_deref(), Some("Custom Payee"));
+        assert_eq!(tx.notes.as_deref(), Some("my note"));
+        assert_eq!(tx.date.as_deref(), Some("2025-03-15"));
+    }
+
+    #[tokio::test]
     async fn posts_negative_diff_when_balance_above_target() {
         let client = Arc::new(FakeClient {
             accounts: vec![account("a-1", "Checking")],
             balance_cents: 200_000,
             last_tx: Default::default(),
         });
-        let svc = ReconcileService::new(client.clone());
-
-        svc.reconcile_account_to("Checking", Money::from_cents(150_000), Default::default())
-            .await
-            .unwrap();
-
+        let svc = svc_with_client(Arc::clone(&client), 150_000);
+        svc.run::<Live>().await.unwrap();
         let tx = client.last_tx.lock().unwrap().clone().unwrap();
         assert_eq!(tx.amount, -50_000);
     }
@@ -254,13 +381,13 @@ mod tests {
             balance_cents: 0,
             last_tx: Default::default(),
         });
-        let svc = ReconcileService::new(client);
-
-        let err = svc
-            .reconcile_account_to("Checking", Money::from_cents(0), Default::default())
-            .await
-            .unwrap_err();
-
+        let svc = ReconcileService::new(
+            client,
+            "Checking".to_string(),
+            Money::from_cents(0),
+            Default::default(),
+        );
+        let err = svc.run::<Live>().await.unwrap_err();
         assert!(matches!(err, AppError::ActualAccountNotFound(_)));
     }
 
@@ -271,13 +398,13 @@ mod tests {
             balance_cents: 0,
             last_tx: Default::default(),
         });
-        let svc = ReconcileService::new(client);
-
-        let err = svc
-            .reconcile_account_to("Checking", Money::from_cents(0), Default::default())
-            .await
-            .unwrap_err();
-
+        let svc = ReconcileService::new(
+            client,
+            "Checking".to_string(),
+            Money::from_cents(0),
+            Default::default(),
+        );
+        let err = svc.run::<Live>().await.unwrap_err();
         assert!(matches!(err, AppError::ActualAccountAmbiguous { .. }));
     }
 }

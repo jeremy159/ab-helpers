@@ -1,5 +1,11 @@
 use super::Money;
 
+/// Reason a reconcile run skips without writing anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReconcileSkip {
+    AlreadyAtTarget { balance: Money },
+}
+
 /// Result of reconciling an account to a target balance.
 #[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, PartialEq, Eq)]

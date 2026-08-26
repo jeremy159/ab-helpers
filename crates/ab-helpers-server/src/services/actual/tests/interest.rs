@@ -1,8 +1,8 @@
 use super::super::*;
 use crate::config::InterestConfig;
-use crate::execution::{DryRun, Live, PlanExecute};
+use crate::execution::{DryRun, Live, PlanExecute, Preview};
 use ab_helpers_domain::InterestPeriod;
-use ab_helpers_domain::{DryRunOutcome, InterestSkip, LiveOutcome, Money};
+use ab_helpers_domain::{InterestSkip, LiveOutcome, Money};
 use actual::{
     Account, ActualResult, AddTransactionResponse, ImportTransaction, LastTransaction,
     SaveTransaction,
@@ -20,7 +20,7 @@ struct FakeClient {
 }
 
 #[async_trait]
-impl actual::AccountRequests for FakeClient {
+impl actual::ActualReadRequests for FakeClient {
     async fn list_accounts(&self) -> ActualResult<Vec<Account>> {
         Ok(self.accounts.clone())
     }
@@ -30,20 +30,20 @@ impl actual::AccountRequests for FakeClient {
     async fn get_last_transaction(&self, _id: &str) -> ActualResult<LastTransaction> {
         Ok(self.last_tx.clone())
     }
-    async fn ensure_payee(&self, _name: &str) -> ActualResult<String> {
-        Ok(self.payee_id.clone())
+    async fn get_balance_at(&self, _id: &str, _date: NaiveDate) -> ActualResult<i64> {
+        Ok(self.balance)
     }
 }
 
 #[async_trait]
-impl actual::TransactionRequests for FakeClient {
+impl actual::ActualWriteRequests for FakeClient {
+    async fn ensure_payee(&self, _name: &str) -> ActualResult<String> {
+        Ok(self.payee_id.clone())
+    }
     async fn add_transaction(&self, _tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
         Ok(AddTransactionResponse {
             id: "ignored".into(),
         })
-    }
-    async fn get_balance_at(&self, _id: &str, _date: NaiveDate) -> ActualResult<i64> {
-        Ok(self.balance)
     }
     async fn import_transaction(&self, tx: ImportTransaction) -> ActualResult<String> {
         *self.imported_tx.lock().unwrap() = Some(tx);
@@ -131,7 +131,7 @@ async fn returns_no_interest_when_zero() {
             date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
             amount: 0,
         },
-        balance: 0, // zero balance → zero interest
+        balance: 0,
         payee_id: "p".into(),
         imported_tx: Default::default(),
     });
@@ -144,17 +144,19 @@ async fn returns_no_interest_when_zero() {
 }
 
 #[tokio::test]
-async fn dry_run_returns_would_apply() {
+async fn dry_run_returns_would_apply_and_writes_nothing() {
     let client = make_client(false);
-    let svc = InterestService::new(client, kia_config());
+    let svc = InterestService::new(Arc::clone(&client), kia_config());
     let outcome = svc.run::<DryRun>().await.unwrap();
     match outcome {
-        DryRunOutcome::WouldApply {
-            interest, notes, ..
-        } => {
-            assert_eq!(interest, Money::from_cents(-66));
-            assert!(notes.contains("semaine"));
+        Preview::WouldApply(plan) => {
+            assert_eq!(plan.interest, Money::from_cents(-66));
+            assert!(plan.notes.contains("semaine"));
         }
         other => panic!("unexpected: {other:?}"),
     }
+    assert!(
+        client.imported_tx.lock().unwrap().is_none(),
+        "dry-run must not write"
+    );
 }

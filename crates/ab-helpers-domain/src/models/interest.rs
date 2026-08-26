@@ -10,20 +10,6 @@ pub enum InterestSkip {
     NoInterest { balance: Money, cutoff: NaiveDate },
 }
 
-/// Outcome of a dry-run interest execution.
-#[derive(Debug)]
-pub enum DryRunOutcome {
-    Skip(InterestSkip),
-    WouldApply {
-        last_tx_date: NaiveDate,
-        cutoff: NaiveDate,
-        balance: Money,
-        interest: Money,
-        new_balance: Money,
-        notes: String,
-    },
-}
-
 /// Outcome of a live (write) interest execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LiveOutcome {
@@ -114,6 +100,7 @@ pub fn mortgage_cutoff(last_tx_date: NaiveDate) -> NaiveDate {
         .expect("transaction date is too close to NaiveDate::MIN")
 }
 
+#[derive(Debug)]
 pub struct InterestPlan {
     pub account_id: String,
     pub last_tx_date: NaiveDate,

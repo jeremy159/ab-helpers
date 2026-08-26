@@ -11,7 +11,7 @@ mod error;
 mod types;
 
 pub use bridge::{BridgeConfig, BridgeInvoker};
-pub use client::{AccountRequests, Client, TransactionRequests};
+pub use client::{ActualReadRequests, ActualWriteRequests, Client};
 pub use error::{ActualResult, Error};
 pub use types::{
     Account, AddTransactionResponse, BalanceResponse, ImportTransaction, LastTransaction,
@@ -19,4 +19,4 @@ pub use types::{
 };
 
 #[cfg(feature = "testutils")]
-pub use client::{MockAccountRequestsImpl, MockTransactionRequestsImpl};
+pub use client::{MockActualReadRequestsImpl, MockActualWriteRequestsImpl};

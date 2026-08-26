@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
-use super::error::CliError;
-use ab_helpers_domain::{DryRunOutcome, InterestSkip, LiveOutcome};
+use super::error::{map_app_error_labelled, CliError};
+use ab_helpers_domain::{InterestSkip, LiveOutcome};
 use ab_helpers_server::{
     config::Settings,
-    error::AppError,
-    execution::{DryRun, Live, PlanExecute},
+    execution::{DryRun, Live, PlanExecute, Preview},
     services::actual::InterestService,
 };
 use clap::Args;
@@ -57,68 +56,49 @@ pub async fn run(
 
     if args.dry_run {
         tracing::debug!(kind = label, "previewing interest (dry-run)");
-        return match service.run::<DryRun>().await {
-            Ok(DryRunOutcome::Skip(InterestSkip::AccountClosed)) => {
-                tracing::info!(
-                    kind = label,
-                    "{label} account is closed - skipping - (DRY-RUN)"
-                );
+        return match service.run::<DryRun>().await.map_err(|e| map_app_error_labelled(e, label))? {
+            Preview::Skip(InterestSkip::AccountClosed) => {
+                tracing::info!(kind = label, "{label} account is closed - skipping (DRY-RUN)");
                 Ok(())
             }
-            Ok(DryRunOutcome::Skip(InterestSkip::NoInterest { balance, cutoff })) => {
-                tracing::info!(balance = %balance, %cutoff, kind = label, "no {label} interest to apply - (DRY-RUN)");
+            Preview::Skip(InterestSkip::NoInterest { balance, cutoff }) => {
+                tracing::info!(balance = %balance, %cutoff, kind = label, "no {label} interest to apply (DRY-RUN)");
                 Ok(())
             }
-            Ok(DryRunOutcome::WouldApply {
-                last_tx_date,
-                cutoff,
-                balance,
-                interest,
-                new_balance,
-                notes,
-            }) => {
+            Preview::WouldApply(plan) => {
                 tracing::info!(
-                    balance = %balance,
-                    interest = %interest,
-                    new_balance = %new_balance,
-                    %last_tx_date,
-                    %cutoff,
-                    %notes,
+                    balance = %plan.balance,
+                    interest = %plan.interest,
+                    new_balance = %plan.new_balance,
+                    last_tx_date = %plan.last_tx_date,
+                    cutoff = %plan.cutoff,
+                    notes = %plan.notes,
                     kind = label,
                     "{label} interest would apply (DRY-RUN)"
                 );
                 println!(
-                    "{label} interest (DRY-RUN)\n  Last transaction: {last_tx_date}\n  Cutoff date:      {cutoff}\n  Balance:          {balance}\n  Interest:         {interest}\n  New balance:      {new_balance}\n  Notes:            {notes}"
+                    "{label} interest (DRY-RUN)\n  Last transaction: {}\n  Cutoff date:      {}\n  Balance:          {}\n  Interest:         {}\n  New balance:      {}\n  Notes:            {}",
+                    plan.last_tx_date, plan.cutoff, plan.balance, plan.interest, plan.new_balance, plan.notes
                 );
                 Ok(())
-            }
-            Err(AppError::ActualAccountNotFound(name)) => {
-                tracing::warn!(account = %name, kind = label, "account not found");
-                Err(CliError::NotFound)
-            }
-            Err(err) => {
-                tracing::error!(?err, kind = label, "interest preview failed");
-                Err(CliError::Failure(err.into()))
             }
         };
     }
 
     tracing::debug!(kind = label, "applying interest");
-    match service.run::<Live>().await {
-        Ok(LiveOutcome::Skip(InterestSkip::AccountClosed)) => {
+    match service.run::<Live>().await.map_err(|e| map_app_error_labelled(e, label))? {
+        LiveOutcome::Skip(InterestSkip::AccountClosed) => {
             tracing::info!(kind = label, "{label} account is closed - skipping");
-            Ok(())
         }
-        Ok(LiveOutcome::Skip(InterestSkip::NoInterest { balance, .. })) => {
+        LiveOutcome::Skip(InterestSkip::NoInterest { balance, .. }) => {
             tracing::info!(balance = %balance, kind = label, "no {label} interest to apply");
-            Ok(())
         }
-        Ok(LiveOutcome::Applied {
+        LiveOutcome::Applied {
             balance,
             interest,
             new_balance,
             transaction_id,
-        }) => {
+        } => {
             tracing::info!(
                 balance = %balance,
                 interest = %interest,
@@ -130,15 +110,7 @@ pub async fn run(
             println!(
                 "{label} interest applied\n  Balance:      {balance}\n  Interest:     {interest}\n  New balance:  {new_balance}\n  Transaction:  {transaction_id}"
             );
-            Ok(())
-        }
-        Err(AppError::ActualAccountNotFound(name)) => {
-            tracing::warn!(account = %name, kind = label, "account not found");
-            Err(CliError::NotFound)
-        }
-        Err(err) => {
-            tracing::error!(?err, kind = label, "interest application failed");
-            Err(CliError::Failure(err.into()))
         }
     }
+    Ok(())
 }
