@@ -2,10 +2,12 @@
 
 Logging is controlled via the `RUST_LOG` environment variable (parsed by [`tracing-subscriber`](https://docs.rs/tracing-subscriber)).
 
-**Default filter** (applied when `RUST_LOG` is not set):
-```
-abh=info,actual=info
-```
+**Default filter** (applied when `RUST_LOG` is not set) depends on the command:
+
+- `abh daemon` (what Docker runs, unattended, no TTY — tracing is its only output): `abh=info,actual=info`
+- Every other one-shot command (`init`, `set-balance`, `apply-*-interest`): `abh=warn,actual=warn` — these already report their outcome via plain stdout, so tracing only surfaces anomalies/errors by default.
+
+`RUST_LOG` overrides this for any command, e.g. `RUST_LOG=abh=info abh set-balance ...`.
 
 ## Level conventions
 

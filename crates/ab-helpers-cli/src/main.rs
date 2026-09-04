@@ -40,8 +40,9 @@ enum SettingsCommand {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    init_tracing();
-    match run().await {
+    let args = Cli::parse();
+    init_tracing(default_filter_for(&args.command));
+    match run(args).await {
         Ok(()) => ExitCode::SUCCESS,
         Err(CliError::NotFound) => ExitCode::from(1),
         Err(CliError::Failure(err)) => {
@@ -51,18 +52,26 @@ async fn main() -> ExitCode {
     }
 }
 
-fn init_tracing() {
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("abh=info,actual=info"));
+/// The daemon is unattended (no TTY, this is what Docker runs) and relies on
+/// tracing as its only output, so it keeps the informative default. One-shot
+/// commands already report their outcome via `println!`, so tracing only
+/// needs to surface anomalies/errors by default.
+fn default_filter_for(command: &Commands) -> &'static str {
+    match command {
+        Commands::WithSettings(SettingsCommand::Daemon) => "abh=info,actual=info",
+        _ => "abh=warn,actual=warn",
+    }
+}
+
+fn init_tracing(default: &str) {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default));
     tracing_subscriber::registry()
         .with(filter)
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 }
 
-async fn run() -> Result<(), CliError> {
-    let args = Cli::parse();
-
+async fn run(args: Cli) -> Result<(), CliError> {
     tracing::info!(command = ?args.command, "abh CLI started");
 
     match args.command {
@@ -85,5 +94,26 @@ async fn run() -> Result<(), CliError> {
                 SettingsCommand::Daemon => commands::daemon::run(settings).await,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cli, SettingsCommand, Commands, default_filter_for};
+    use clap::Parser;
+
+    #[test]
+    fn daemon_defaults_to_info() {
+        let command = Commands::WithSettings(SettingsCommand::Daemon);
+        assert_eq!(default_filter_for(&command), "abh=info,actual=info");
+    }
+
+    #[test]
+    fn one_shot_commands_default_to_warn() {
+        let init = Cli::parse_from(["abh", "init"]).command;
+        assert_eq!(default_filter_for(&init), "abh=warn,actual=warn");
+
+        let interest = Cli::parse_from(["abh", "apply-kia-interest"]).command;
+        assert_eq!(default_filter_for(&interest), "abh=warn,actual=warn");
     }
 }

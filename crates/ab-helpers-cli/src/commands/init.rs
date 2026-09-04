@@ -23,6 +23,10 @@ pub struct InitArgs {
 const CONFIG_STUB: &str = "\
 # ab-helpers CLI overrides. Values here layer on top of base.toml; only set the
 # fields you need to change.
+#
+# `password` and `sync_id` are secrets. This file is kept owner-only (0600),
+# but prefer ABH_ACTUAL__PASSWORD_FILE / ABH_ACTUAL__SYNC_ID_FILE instead of
+# writing the real values here - see the README's Configuration section.
 
 [actual]
 server_url = \"\"
@@ -35,6 +39,22 @@ account_id = \"\"
 [actual.mortgage]
 account_id = \"\"
 ";
+
+/// Restrict a file to owner read/write only (`0600`). Best-effort: a config
+/// file may hold a real secret inline (`config.toml`), so it shouldn't be
+/// left group/world-readable. No-op on non-Unix platforms.
+fn set_owner_only_perms(path: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
+}
 
 pub fn run(args: InitArgs) -> Result<(), CliError> {
     tracing::info!("init command started");
@@ -85,10 +105,35 @@ pub fn run(args: InitArgs) -> Result<(), CliError> {
         println!("wrote {}", dest_config.display());
     }
 
+    // config.toml may hold a real secret inline - keep it owner-only
+    // regardless of which branch above ran. Best-effort: a pre-existing file
+    // with looser perms shouldn't block init.
+    if let Err(e) = set_owner_only_perms(&dest_config) {
+        tracing::warn!(path = %dest_config.display(), error = %e, "failed to restrict config.toml permissions to owner-only");
+    }
+
     println!(
         "\nEdit {} to set your Actual credentials and account IDs.",
         dest_config.display()
     );
     tracing::info!(config_dir = %dest.display(), "init complete");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::set_owner_only_perms;
+
+    #[test]
+    fn set_owner_only_perms_restricts_to_owner_read_write() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        set_owner_only_perms(file.path()).unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(file.path()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
 }

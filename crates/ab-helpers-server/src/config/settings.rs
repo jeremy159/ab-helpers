@@ -126,7 +126,7 @@ pub struct SchedulerSettings {
 pub struct ActualSettings {
     pub server_url: String,
     pub password: Secret<String>,
-    pub sync_id: String,
+    pub sync_id: Secret<String>,
     /// Local cache directory for the Actual client. Empty → falls back to
     /// `<workspace>/cache`.
     #[serde(default)]
@@ -198,7 +198,7 @@ fn resource_root() -> PathBuf {
 /// every CLI invocation reads/writes the same place regardless of the working
 /// directory - this also holds the daemon's idempotency state, so it must not
 /// live under a clearable cache dir. Docker overrides it via
-/// `ABH__ACTUAL__CACHE_DIR`.
+/// `ABH_ACTUAL__CACHE_DIR`.
 fn default_cache_dir() -> PathBuf {
     user_data_dir()
         .map(|d| d.join("cache"))
@@ -336,20 +336,89 @@ fn non_empty_var(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|s| !s.is_empty())
 }
 
+/// Lets a secret be supplied via a `..._FILE` env var pointing at a file
+/// (the Docker/Postgres convention, e.g. for secrets mounted from Docker
+/// secrets) instead of the value being set directly in an env var.
+///
+/// Implemented as a `config::Format` so it can plug into the same
+/// layering/merging machinery as the TOML files: rather than actually
+/// parsing anything, it just reads the whole file, trims trailing
+/// whitespace, and stores that as the value at one fixed dotted config key
+/// (`self.0`, e.g. `"database.password"`). See `SECRET_FILE_VARS` for how
+/// env vars map to these keys.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RawSecret(pub(crate) &'static str);
+
+impl config::Format for RawSecret {
+    fn parse(
+        &self,
+        uri: Option<&String>,
+        text: &str,
+    ) -> Result<config::Map<String, config::Value>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut map = config::Map::new();
+        map.insert(
+            self.0.to_string(),
+            config::Value::new(uri, text.trim_end().to_string()),
+        );
+        Ok(map)
+    }
+}
+
+impl config::FileStoredFormat for RawSecret {
+    fn file_extensions(&self) -> &'static [&'static str] {
+        &["txt"]
+    }
+}
+
+/// The secret fields that accept a `..._FILE` env var indirection, paired
+/// with their dotted config path.
+const SECRET_FILE_VARS: &[(&str, &str)] = &[
+    ("ABH_DATABASE__PASSWORD_FILE", "database.password"),
+    ("ABH_ACTUAL__PASSWORD_FILE", "actual.password"),
+    ("ABH_ACTUAL__SYNC_ID_FILE", "actual.sync_id"),
+];
+
+/// Resolve which `_FILE` secret sources to add: for each field in
+/// `SECRET_FILE_VARS` whose `_FILE` var is set, its file path. Errors if both
+/// the direct var and the `_FILE` var are set for the same field (ambiguous -
+/// same convention the official Postgres/MySQL Docker images use).
+pub(crate) fn resolve_secret_file_paths(
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<Vec<(&'static str, String)>, config::ConfigError> {
+    let mut resolved = Vec::new();
+    for (file_var, dotted_key) in SECRET_FILE_VARS {
+        let direct_var = file_var
+            .strip_suffix("_FILE")
+            .expect("SECRET_FILE_VARS entries are declared with a _FILE suffix");
+        match (lookup(direct_var), lookup(file_var)) {
+            (Some(_), Some(_)) => {
+                return Err(config::ConfigError::Message(format!(
+                    "both {direct_var} and {file_var} are set; unset one"
+                )));
+            }
+            (_, Some(path)) => resolved.push((*dotted_key, path)),
+            _ => {}
+        }
+    }
+    Ok(resolved)
+}
+
 impl Settings {
     pub fn build() -> Result<Self, config::ConfigError> {
         let mut builder = config::Config::builder();
         for layer in config_layers()? {
             builder = builder.add_source(config::File::from(layer.path).required(layer.required));
         }
-        builder
-            .add_source(
-                config::Environment::with_prefix("ABH")
-                    .prefix_separator("_")
-                    .separator("__"),
-            )
-            .build()?
-            .try_deserialize::<Self>()
+        builder = builder.add_source(
+            config::Environment::with_prefix("ABH")
+                .prefix_separator("_")
+                .separator("__"),
+        );
+        for (dotted_key, path) in resolve_secret_file_paths(non_empty_var)? {
+            builder = builder
+                .add_source(config::File::new(&path, RawSecret(dotted_key)).required(true));
+        }
+        builder.build()?.try_deserialize::<Self>()
     }
 }
 

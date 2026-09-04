@@ -3,6 +3,11 @@
 # `abh init` copies base.toml here as the defaults floor and writes a starter
 # config.toml; this file layers on top of base.toml, so only set what you need
 # to change. `ABH_`-prefixed env vars still override these values.
+#
+# `password` and `sync_id` are secrets. Rather than writing them here, prefer
+# pointing at a file with ABH_ACTUAL__PASSWORD_FILE / ABH_ACTUAL__SYNC_ID_FILE
+# (see the README's Configuration section) so the real values never sit in
+# this toml file.
 
 [actual]
 server_url = "https://your-actual-server"

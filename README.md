@@ -47,6 +47,9 @@ fields that differ from `base.toml`. Re-run `abh init` anytime to refresh
 `base.toml` with project updates; your `config.toml` is left untouched (use
 `--force` to overwrite it).
 
+For `actual.password` and `actual.sync_id`, prefer the `_FILE` env vars over
+writing the real value into `config.toml` — see [Secrets](#secrets) below.
+
 ### Environment variables
 
 Override any value with `ABH_SECTION__KEY` (single underscore after the `ABH`
@@ -64,18 +67,61 @@ prefix, double underscore between nested keys):
 | `ABH_SCHEDULER__KIA_INTEREST_CRON` | Kia cron schedule (default: Thursdays 9 AM) |
 | `ABH_SCHEDULER__MORTGAGE_INTEREST_CRON` | Mortgage cron schedule (default: 18th of month 9 AM) |
 
+### Secrets
+
+`actual.password` and `actual.sync_id` (and `database.password`, for the
+server) are secrets. Avoid writing the real value into `config.toml` or a
+committed `.env` file — instead, append `_FILE` to the variable name and
+point it at a file holding just that value. The file's contents (trailing
+newline trimmed) become the effective value. Setting both a variable and its
+`_FILE` counterpart is an error, to avoid silently picking one. This is the
+same convention Docker/Compose secrets and the official Postgres/MySQL
+images use, so it works unchanged whether the file is a `chmod 600` file on
+your machine or a Docker secret mount (see Docker below). `abh init` also
+keeps `~/.config/ab-helpers/config.toml` itself owner-only (`0600`) in case
+you do put a real value there directly.
+
+**Local CLI setup:**
+
+```bash
+mkdir -p ~/.config/ab-helpers/secrets
+printf '%s' 'your-password' > ~/.config/ab-helpers/secrets/actual_password.txt
+printf '%s' 'your-sync-id'  > ~/.config/ab-helpers/secrets/actual_sync_id.txt
+chmod 600 ~/.config/ab-helpers/secrets/*.txt
+```
+
+Then export the `_FILE` vars so every `abh` invocation picks them up — add
+this to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.):
+
+```bash
+export ABH_ACTUAL__PASSWORD_FILE=~/.config/ab-helpers/secrets/actual_password.txt
+export ABH_ACTUAL__SYNC_ID_FILE=~/.config/ab-helpers/secrets/actual_sync_id.txt
+```
+
 ## Logging
 
 Controlled via `RUST_LOG`. See [docs/logging.md](docs/logging.md) for level conventions and recommended values.
 
 ## Docker
 
-Create a `.env` file next to `compose.yaml` with your credentials:
+Create the two secret files `compose.yaml` mounts into the container:
+
+```bash
+mkdir -p secrets
+printf '%s' 'your-password' > secrets/actual_password.txt
+printf '%s' 'your-sync-id'  > secrets/actual_sync_id.txt
+chmod 600 secrets/actual_password.txt secrets/actual_sync_id.txt
+```
+
+`secrets/` is gitignored. Compose mounts each as a read-only file under
+`/run/secrets/`, and the daemon reads them via `ABH_ACTUAL__PASSWORD_FILE` /
+`ABH_ACTUAL__SYNC_ID_FILE`, already set in `compose.yaml` — the real values
+never need to touch `.env` or any committed file.
+
+Then create a `.env` file next to `compose.yaml` for the non-secret settings:
 
 ```env
 ABH_ACTUAL__SERVER_URL=https://your-actual-server
-ABH_ACTUAL__PASSWORD=your-password
-ABH_ACTUAL__SYNC_ID=your-sync-id
 ABH_ACTUAL__KIA__ACCOUNT_ID=your-kia-account-id
 ABH_ACTUAL__MORTGAGE__ACCOUNT_ID=your-mortgage-account-id
 ```

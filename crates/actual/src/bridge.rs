@@ -21,7 +21,7 @@ pub struct BridgeConfig {
     pub bridge_script: PathBuf,
     pub server_url: String,
     pub password: Secret<String>,
-    pub sync_id: String,
+    pub sync_id: Secret<String>,
     pub cache_dir: PathBuf,
 }
 
@@ -40,7 +40,7 @@ impl BridgeInvoker for BridgeConfig {
         let mut env: HashMap<&str, String> = HashMap::new();
         env.insert("ACTUAL_SERVER_URL", self.server_url.clone());
         env.insert("ACTUAL_PASSWORD", self.password.expose_secret().clone());
-        env.insert("ACTUAL_SYNC_ID", self.sync_id.clone());
+        env.insert("ACTUAL_SYNC_ID", self.sync_id.expose_secret().clone());
         env.insert(
             "ACTUAL_DATA_DIR",
             self.cache_dir.to_string_lossy().into_owned(),

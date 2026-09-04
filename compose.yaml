@@ -6,6 +6,11 @@ services:
     env_file: .env
     environment:
       RUST_LOG: abh=debug
+      ABH_ACTUAL__PASSWORD_FILE: /run/secrets/actual_password
+      ABH_ACTUAL__SYNC_ID_FILE: /run/secrets/actual_sync_id
+    secrets:
+      - actual_password
+      - actual_sync_id
     volumes:
       - data:/data
 
@@ -17,6 +22,9 @@ services:
   #     - "8000:8000"
   #   environment:
   #     ABH_ENVIRONMENT: "staging"
+  #     ABH_DATABASE__PASSWORD_FILE: /run/secrets/postgres_password
+  #   secrets:
+  #     - postgres_password
   #   depends_on:
   #     - postgres
   #     - redis
@@ -27,15 +35,25 @@ services:
   #   volumes:
   #     - db:/var/lib/postgresql/data
   #   environment:
-  #     POSTGRES_PASSWORD: "password"
+  #     POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
   #     POSTGRES_USER: "postgres"
   #     POSTGRES_DB: ab_helpers
+  #   secrets:
+  #     - postgres_password
 
   # redis:
   #   image: "redis:7"
   #   restart: always
   #   volumes:
   #     - redis:/data
+
+secrets:
+  actual_password:
+    file: ./secrets/actual_password.txt
+  actual_sync_id:
+    file: ./secrets/actual_sync_id.txt
+  # postgres_password:
+  #   file: ./secrets/postgres_password.txt
 
 volumes:
   data:
