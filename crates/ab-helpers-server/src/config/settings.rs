@@ -128,14 +128,18 @@ pub struct ActualSettings {
     pub password: Secret<String>,
     pub sync_id: Secret<String>,
     /// Local cache directory for the Actual client. Empty → falls back to
-    /// `<workspace>/cache`.
+    /// the XDG data dir (`$XDG_DATA_HOME/ab-helpers/cache`, or
+    /// `~/.local/share/ab-helpers/cache` if unset) - see
+    /// `default_cache_dir()`.
     #[serde(default)]
     pub cache_dir: String,
     /// Override the `node` binary. Defaults to `node` on `PATH`.
     #[serde(default = "default_node_bin")]
     pub node_bin: String,
-    /// Path to the bridge script. Empty → relative to workspace root
-    /// (`crates/actual/bridge/index.js`).
+    /// Path to the bridge script. Empty → use `crates/actual/bridge/index.js`
+    /// relative to the workspace root if running from inside a full checkout
+    /// of this repo (dev), otherwise fall back to a self-installed managed
+    /// copy under the XDG data dir (see `actual::ensure_managed_bridge_script`).
     #[serde(default)]
     pub bridge_script: String,
     pub kia: KiaSettings,
@@ -147,38 +151,60 @@ fn default_node_bin() -> String {
 }
 
 impl ActualSettings {
-    pub fn bridge_config(&self) -> actual::BridgeConfig {
+    /// Resolves the full bridge configuration. Falls back from an explicit
+    /// `bridge_script`, to a working dev checkout, to a self-installed
+    /// managed copy (may run `npm ci`, hence `async`).
+    pub async fn bridge_config(&self) -> anyhow::Result<actual::BridgeConfig> {
+        let node_bin = PathBuf::from(&self.node_bin);
+
         let bridge_script = if self.bridge_script.is_empty() {
-            resource_root().join("crates/actual/bridge/index.js")
+            let dev_path = resource_root().join("crates/actual/bridge/index.js");
+            let dev_node_modules_installed = dev_path
+                .parent()
+                .map(|p| p.join("node_modules").is_dir())
+                .unwrap_or(false);
+            if dev_path.is_file() && dev_node_modules_installed {
+                dev_path
+            } else {
+                let node_bin_for_install = node_bin.clone();
+                tokio::task::spawn_blocking(move || {
+                    actual::ensure_managed_bridge_script(&node_bin_for_install)
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("managed bridge install task panicked: {e}"))??
+            }
         } else {
             PathBuf::from(&self.bridge_script)
         };
+
         let cache_dir = if self.cache_dir.is_empty() {
             default_cache_dir()
         } else {
             PathBuf::from(&self.cache_dir)
         };
 
-        actual::BridgeConfig {
-            node_bin: PathBuf::from(&self.node_bin),
+        Ok(actual::BridgeConfig {
+            node_bin,
             bridge_script,
             server_url: self.server_url.clone(),
             password: self.password.clone(),
             sync_id: self.sync_id.clone(),
             cache_dir,
-        }
+        })
     }
 
-    pub fn client(&self) -> actual::Client {
-        actual::Client::new(self.bridge_config())
+    pub async fn client(&self) -> anyhow::Result<actual::Client> {
+        Ok(actual::Client::new(self.bridge_config().await?))
     }
 }
 
-/// Base directory for resolving the bundled Node bridge script and (in dev) the
-/// cache dir. Prefers the workspace root when running inside the source tree;
-/// otherwise the directory of the running executable. In Docker / an installed
-/// CLI, set `bridge_script` and `cache_dir` explicitly instead of relying on
-/// this.
+/// Base directory for resolving the bundled Node bridge script (dev only) and
+/// (always) the default cache dir. Prefers the workspace root when running
+/// inside the source tree; otherwise the directory of the running executable.
+/// `bridge_script` self-installs a managed copy when not running from inside
+/// a full checkout (see `ActualSettings::bridge_config`); in Docker / an
+/// installed CLI, `cache_dir` should still be set explicitly instead of
+/// relying on this.
 fn resource_root() -> PathBuf {
     if let Ok(mut p) = std::env::current_dir() {
         loop {
@@ -415,8 +441,8 @@ impl Settings {
                 .separator("__"),
         );
         for (dotted_key, path) in resolve_secret_file_paths(non_empty_var)? {
-            builder = builder
-                .add_source(config::File::new(&path, RawSecret(dotted_key)).required(true));
+            builder =
+                builder.add_source(config::File::new(&path, RawSecret(dotted_key)).required(true));
         }
         builder.build()?.try_deserialize::<Self>()
     }

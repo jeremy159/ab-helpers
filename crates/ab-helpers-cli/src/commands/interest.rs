@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::error::{map_app_error_labelled, CliError};
+use super::error::{CliError, map_app_error_labelled};
 use ab_helpers_domain::{InterestSkip, LiveOutcome};
 use ab_helpers_server::{
     config::Settings,
@@ -50,15 +50,22 @@ pub async fn run(
         "apply-interest started"
     );
 
-    let client = Arc::new(settings.actual.client());
+    let client = Arc::new(settings.actual.client().await?);
     let config = kind.config(&settings);
     let service = InterestService::new(client, config);
 
     if args.dry_run {
         tracing::debug!(kind = label, "previewing interest (dry-run)");
-        return match service.run::<DryRun>().await.map_err(|e| map_app_error_labelled(e, label))? {
+        return match service
+            .run::<DryRun>()
+            .await
+            .map_err(|e| map_app_error_labelled(e, label))?
+        {
             Preview::Skip(InterestSkip::AccountClosed) => {
-                tracing::info!(kind = label, "{label} account is closed - skipping (DRY-RUN)");
+                tracing::info!(
+                    kind = label,
+                    "{label} account is closed - skipping (DRY-RUN)"
+                );
                 Ok(())
             }
             Preview::Skip(InterestSkip::NoInterest { balance, cutoff }) => {
@@ -78,7 +85,12 @@ pub async fn run(
                 );
                 println!(
                     "{label} interest (DRY-RUN)\n  Last transaction: {}\n  Cutoff date:      {}\n  Balance:          {}\n  Interest:         {}\n  New balance:      {}\n  Notes:            {}",
-                    plan.last_tx_date, plan.cutoff, plan.balance, plan.interest, plan.new_balance, plan.notes
+                    plan.last_tx_date,
+                    plan.cutoff,
+                    plan.balance,
+                    plan.interest,
+                    plan.new_balance,
+                    plan.notes
                 );
                 Ok(())
             }
@@ -86,7 +98,11 @@ pub async fn run(
     }
 
     tracing::debug!(kind = label, "applying interest");
-    match service.run::<Live>().await.map_err(|e| map_app_error_labelled(e, label))? {
+    match service
+        .run::<Live>()
+        .await
+        .map_err(|e| map_app_error_labelled(e, label))?
+    {
         LiveOutcome::Skip(InterestSkip::AccountClosed) => {
             tracing::info!(kind = label, "{label} account is closed - skipping");
         }

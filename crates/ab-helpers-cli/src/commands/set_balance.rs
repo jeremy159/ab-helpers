@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ab_helpers_domain::{Money, ReconcileOutcome, ReconcileSkip};
 use anyhow::Context as _;
 
-use super::error::{map_app_error, CliError};
+use super::error::{CliError, map_app_error};
 use ab_helpers_server::config::Settings;
 use ab_helpers_server::execution::{DryRun, Live, PlanExecute, Preview};
 use ab_helpers_server::services::actual::{ReconcileOptions, ReconcileService};
@@ -37,7 +37,7 @@ pub struct SetBalanceArgs {
 pub async fn run(settings: Settings, args: SetBalanceArgs) -> Result<(), CliError> {
     tracing::info!(account = %args.account, amount = %args.amount, dry_run = args.dry_run, "set-balance started");
 
-    let client = Arc::new(settings.actual.client());
+    let client = Arc::new(settings.actual.client().await?);
 
     let opts = ReconcileOptions {
         date: args

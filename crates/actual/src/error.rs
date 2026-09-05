@@ -9,6 +9,12 @@ pub enum Error {
     #[error("bridge invocation failed: {0}")]
     Bridge(String),
 
+    /// Failure setting up the self-installed managed bridge (creating its
+    /// directory, resolving a home dir, or running `npm ci`) - distinct from
+    /// `Bridge` since nothing was actually invoked yet.
+    #[error("bridge install failed: {0}")]
+    BridgeInstall(String),
+
     /// The bridge process produced output that didn't match the protocol.
     #[error("bridge protocol error: {0}")]
     BridgeProtocol(String),

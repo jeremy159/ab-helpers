@@ -98,6 +98,33 @@ export ABH_ACTUAL__PASSWORD_FILE=~/.config/ab-helpers/secrets/actual_password.tx
 export ABH_ACTUAL__SYNC_ID_FILE=~/.config/ab-helpers/secrets/actual_sync_id.txt
 ```
 
+### Actual bridge
+
+Actual is driven from Rust through a small Node.js "bridge" script. When
+`actual.bridge_script` (or `ABH_ACTUAL__BRIDGE_SCRIPT`) isn't set, it
+self-installs on first run: a managed copy is written to
+`$XDG_DATA_HOME/ab-helpers/bridge` (typically
+`~/.local/share/ab-helpers/bridge`), and `npm ci` runs there automatically
+the first time `node_modules` is missing or out of date. This requires
+`node`/`npm` — already required for running the bridge at all — but no full
+git checkout of this repo. By default `node`/`npm` are resolved from `PATH`;
+if you set `node_bin` (or `ABH_ACTUAL__NODE_BIN`) to a specific `node`
+binary not on `PATH`, `npm` is looked up next to it first, so pointing at a
+non-`PATH` Node install (e.g. via nvm) works without needing `npm` on `PATH`
+too. Subsequent runs skip the install and start immediately; a binary
+upgrade that bumps the bridge's dependencies automatically triggers a fresh
+`npm ci` the next time it runs. To force a full reinstall manually, delete
+the managed directory (typically `rm -rf ~/.local/share/ab-helpers/bridge`)
+and it will be recreated on the next run.
+
+Set `bridge_script` explicitly to point at a real checkout instead (e.g. for
+development, or to pin/customize the bridge):
+
+```toml
+[actual]
+bridge_script = "/path/to/ab-helpers/crates/actual/bridge/index.js"
+```
+
 ## Logging
 
 Controlled via `RUST_LOG`. See [docs/logging.md](docs/logging.md) for level conventions and recommended values.

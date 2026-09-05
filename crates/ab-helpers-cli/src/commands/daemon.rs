@@ -122,7 +122,7 @@ async fn run_inner(settings: Settings) -> anyhow::Result<()> {
     let tz = settings.scheduler.timezone;
     tracing::info!(%tz, "daemon initializing");
 
-    let data_dir = settings.actual.bridge_config().cache_dir;
+    let data_dir = settings.actual.bridge_config().await?.cache_dir;
     let state = Arc::new(Mutex::new(load_state(&data_dir)));
 
     // --- Missed-tick catch-up on startup ---
@@ -200,7 +200,17 @@ async fn run_interest(
     data_dir: &Path,
 ) {
     let label = kind.label();
-    let client = Arc::new(settings.actual.client());
+    let client = match settings.actual.client().await {
+        Ok(client) => Arc::new(client),
+        Err(err) => {
+            tracing::error!(
+                ?err,
+                kind = label,
+                "failed to set up Actual bridge client: will retry next scheduled tick"
+            );
+            return;
+        }
+    };
     let config = kind.config(settings);
     let service = InterestService::new(client, config);
 

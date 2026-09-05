@@ -1,13 +1,20 @@
-use super::settings::{RawSecret, resolve_secret_file_paths};
 use config::Format;
 use std::collections::HashMap;
 
+use crate::config::{RawSecret, resolve_secret_file_paths};
+
 #[test]
 fn raw_secret_format_puts_trimmed_content_at_its_key() {
-    let map = RawSecret("actual.password").parse(None, "hunter2\n").unwrap();
+    let map = RawSecret("actual.password")
+        .parse(None, "hunter2\n")
+        .unwrap();
 
     assert_eq!(
-        map.get("actual.password").unwrap().clone().into_string().unwrap(),
+        map.get("actual.password")
+            .unwrap()
+            .clone()
+            .into_string()
+            .unwrap(),
         "hunter2"
     );
 }
