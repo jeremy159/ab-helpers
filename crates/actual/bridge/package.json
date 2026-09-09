@@ -9,7 +9,7 @@
     "list-accounts": "node index.js list-accounts --json '{}'"
   },
   "dependencies": {
-    "@actual-app/api": "^25.5.0"
+    "@actual-app/api": "^26.9.0"
   },
   "engines": {
     "node": ">=18"

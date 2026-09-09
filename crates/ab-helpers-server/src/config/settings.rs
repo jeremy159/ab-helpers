@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use ab_helpers_domain::InterestPeriod;
 use chrono_tz::Tz;
@@ -190,11 +191,59 @@ impl ActualSettings {
             password: self.password.clone(),
             sync_id: self.sync_id.clone(),
             cache_dir,
+            timeouts: actual::BridgeTimeouts::default(),
         })
     }
 
+    /// One-shot client: spawns a fresh bridge process per call. Simple, but
+    /// re-downloads/re-syncs the whole local budget replica every time -
+    /// prefer [`ActualSettings::with_session`] for anything that makes more
+    /// than one call.
     pub async fn client(&self) -> anyhow::Result<actual::Client> {
         Ok(actual::Client::new(self.bridge_config().await?))
+    }
+
+    /// Opens one bridge session (one `node` process, one open budget) and
+    /// runs `f` against a client built on top of it, always closing the
+    /// session afterwards - on success, on error, and in between.
+    ///
+    /// A failure to close (most notably: the final sync-to-server failed)
+    /// only overrides the outcome when `f` itself succeeded; an error from
+    /// `f` is already the more informative one to surface.
+    pub async fn with_session<T, E, F, Fut>(&self, f: F) -> Result<T, E>
+    where
+        E: From<anyhow::Error>,
+        F: FnOnce(Arc<actual::Client>) -> Fut,
+        Fut: std::future::Future<Output = Result<T, E>>,
+    {
+        let bridge_config = self.bridge_config().await.map_err(E::from)?;
+        let session = Arc::new(
+            bridge_config
+                .open_session()
+                .await
+                .map_err(|e| E::from(anyhow::Error::from(e)))?,
+        );
+        let client = Arc::new(actual::Client::with_invoker(
+            Arc::clone(&session) as Arc<dyn actual::BridgeInvoker>
+        ));
+
+        let outcome = f(client).await;
+        let closed = session.close().await;
+
+        match outcome {
+            Ok(v) => closed
+                .map(|()| v)
+                .map_err(|e| E::from(anyhow::Error::from(e))),
+            Err(e) => {
+                if let Err(close_err) = closed {
+                    tracing::warn!(
+                        error = ?close_err,
+                        "closing Actual bridge session also failed while unwinding an error"
+                    );
+                }
+                Err(e)
+            }
+        }
     }
 }
 

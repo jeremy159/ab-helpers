@@ -30,12 +30,24 @@ pub enum Error {
     /// IO error spawning or reading from the bridge.
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// A bridge session is no longer usable (poisoned by a prior fatal
+    /// error, already closed, or the child process is gone).
+    #[error("bridge session unusable: {0}")]
+    SessionClosed(String),
+
+    /// A bridge operation didn't respond within its timeout.
+    #[error("bridge operation `{operation}` timed out after {secs}s")]
+    Timeout { operation: String, secs: u64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiError {
     pub code: String,
     pub message: String,
+    /// Whether the session that produced this error is no longer usable.
+    #[serde(default)]
+    pub fatal: bool,
 }
 
 impl ApiError {

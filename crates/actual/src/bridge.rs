@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use secrecy::{ExposeSecret, Secret};
@@ -10,6 +11,30 @@ use tokio::process::Command;
 
 use crate::ActualResult;
 use crate::error::{ApiError, Error};
+
+/// Timeouts governing a [`crate::session::BridgeSession`].
+#[derive(Debug, Clone, Copy)]
+pub struct BridgeTimeouts {
+    /// `open` (api.init + downloadBudget of a potentially large budget file).
+    pub open: Duration,
+    /// Any single non-open, non-close operation.
+    pub operation: Duration,
+    /// `close` (final sync + shutdown).
+    pub close: Duration,
+    /// How long to wait for another process to release the data-dir lock.
+    pub lock: Duration,
+}
+
+impl Default for BridgeTimeouts {
+    fn default() -> Self {
+        Self {
+            open: Duration::from_secs(300),
+            operation: Duration::from_secs(120),
+            close: Duration::from_secs(300),
+            lock: Duration::from_secs(120),
+        }
+    }
+}
 
 /// All the configuration the bridge needs to talk to an Actual server.
 ///
@@ -23,6 +48,23 @@ pub struct BridgeConfig {
     pub password: Secret<String>,
     pub sync_id: Secret<String>,
     pub cache_dir: PathBuf,
+    pub timeouts: BridgeTimeouts,
+}
+
+impl BridgeConfig {
+    /// Env vars forwarded to the bridge process, shared by the single-shot
+    /// invoker below and by [`crate::session::BridgeSession::open`].
+    pub(crate) fn env(&self) -> HashMap<&'static str, String> {
+        let mut env: HashMap<&'static str, String> = HashMap::new();
+        env.insert("ACTUAL_SERVER_URL", self.server_url.clone());
+        env.insert("ACTUAL_PASSWORD", self.password.expose_secret().clone());
+        env.insert("ACTUAL_SYNC_ID", self.sync_id.expose_secret().clone());
+        env.insert(
+            "ACTUAL_DATA_DIR",
+            self.cache_dir.to_string_lossy().into_owned(),
+        );
+        env
+    }
 }
 
 /// Object-safe trait: the wire types are JSON values so this can live behind
@@ -37,15 +79,6 @@ impl BridgeInvoker for BridgeConfig {
     async fn invoke(&self, subcommand: &str, args: Value) -> ActualResult<Value> {
         let args_json = serde_json::to_string(&args)?;
 
-        let mut env: HashMap<&str, String> = HashMap::new();
-        env.insert("ACTUAL_SERVER_URL", self.server_url.clone());
-        env.insert("ACTUAL_PASSWORD", self.password.expose_secret().clone());
-        env.insert("ACTUAL_SYNC_ID", self.sync_id.expose_secret().clone());
-        env.insert(
-            "ACTUAL_DATA_DIR",
-            self.cache_dir.to_string_lossy().into_owned(),
-        );
-
         tracing::debug!(?subcommand, "invoking actual bridge");
 
         let mut cmd = Command::new(&self.node_bin);
@@ -53,7 +86,7 @@ impl BridgeInvoker for BridgeConfig {
             .arg(subcommand)
             .arg("--json")
             .arg(&args_json)
-            .envs(env)
+            .envs(self.env())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
