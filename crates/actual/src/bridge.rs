@@ -5,12 +5,14 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use secrecy::{ExposeSecret, Secret};
+use serde::Serialize;
 use serde_json::Value;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 use crate::ActualResult;
 use crate::error::{ApiError, Error};
+use crate::types::{ImportTransactionRequest, SaveTransaction};
 
 /// Timeouts governing a [`crate::session::BridgeSession`].
 #[derive(Debug, Clone, Copy)]
@@ -67,23 +69,62 @@ impl BridgeConfig {
     }
 }
 
-/// Object-safe trait: the wire types are JSON values so this can live behind
-/// `Arc<dyn BridgeInvoker>` and be swapped out in tests.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "operation", content = "args")]
+pub enum BridgeRequest {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "close")]
+    Close,
+    #[serde(rename = "list-accounts")]
+    ListAccounts,
+    #[serde(rename = "get-balance", rename_all = "camelCase")]
+    GetBalance { account_id: String },
+    #[serde(rename = "get-balance-at", rename_all = "camelCase")]
+    GetBalanceAt { account_id: String, date: String },
+    #[serde(rename = "get-last-transaction", rename_all = "camelCase")]
+    GetLastTransaction { account_id: String },
+    #[serde(rename = "ensure-payee")]
+    EnsurePayee { name: String },
+    #[serde(rename = "add-transaction")]
+    AddTransaction(SaveTransaction),
+    #[serde(rename = "import-transaction")]
+    ImportTransaction(ImportTransactionRequest),
+}
+
+impl BridgeRequest {
+    /// Splits into the wire operation name and its JSON `args` payload
+    pub(crate) fn wire_parts(&self) -> ActualResult<(String, Value)> {
+        let value = serde_json::to_value(self)?;
+        let name = value
+            .get("operation")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let args = value
+            .get("args")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Default::default()));
+        Ok((name, args))
+    }
+}
+
 #[async_trait]
 pub trait BridgeInvoker: Send + Sync {
-    async fn invoke(&self, subcommand: &str, args: Value) -> ActualResult<Value>;
+    async fn invoke(&self, request: BridgeRequest) -> ActualResult<Value>;
 }
 
 #[async_trait]
 impl BridgeInvoker for BridgeConfig {
-    async fn invoke(&self, subcommand: &str, args: Value) -> ActualResult<Value> {
+    async fn invoke(&self, request: BridgeRequest) -> ActualResult<Value> {
+        let (subcommand, args) = request.wire_parts()?;
         let args_json = serde_json::to_string(&args)?;
 
         tracing::debug!(?subcommand, "invoking actual bridge");
 
         let mut cmd = Command::new(&self.node_bin);
         cmd.arg(&self.bridge_script)
-            .arg(subcommand)
+            .arg(&subcommand)
             .arg("--json")
             .arg(&args_json)
             .envs(self.env())

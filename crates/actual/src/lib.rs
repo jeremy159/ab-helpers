@@ -25,7 +25,7 @@ mod session;
 mod tests;
 mod types;
 
-pub use bridge::{BridgeConfig, BridgeInvoker, BridgeTimeouts};
+pub use bridge::{BridgeConfig, BridgeInvoker, BridgeRequest, BridgeTimeouts};
 pub use client::{ActualReadRequests, ActualWriteRequests, Client};
 pub use error::{ActualResult, Error};
 pub use managed_bridge::ensure_managed_bridge_script;

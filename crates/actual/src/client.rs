@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use serde_json::json;
 
-use crate::bridge::{BridgeConfig, BridgeInvoker};
+use crate::bridge::{BridgeConfig, BridgeInvoker, BridgeRequest};
 use crate::error::ActualResult;
 use crate::types::{
     Account, AddTransactionResponse, BalanceResponse, EnsurePayeeResponse, ImportTransaction,
@@ -52,7 +51,7 @@ pub trait ActualWriteRequests: Send + Sync {
 #[async_trait]
 impl ActualReadRequests for Client {
     async fn list_accounts(&self) -> ActualResult<Vec<Account>> {
-        let value = self.invoker.invoke("list-accounts", json!({})).await?;
+        let value = self.invoker.invoke(BridgeRequest::ListAccounts).await?;
         let resp: ListAccountsResponse = serde_json::from_value(value)?;
         Ok(resp.accounts)
     }
@@ -60,7 +59,9 @@ impl ActualReadRequests for Client {
     async fn get_account_balance(&self, account_id: &str) -> ActualResult<i64> {
         let value = self
             .invoker
-            .invoke("get-balance", json!({ "accountId": account_id }))
+            .invoke(BridgeRequest::GetBalance {
+                account_id: account_id.to_string(),
+            })
             .await?;
         let resp: BalanceResponse = serde_json::from_value(value)?;
         Ok(resp.balance)
@@ -69,7 +70,9 @@ impl ActualReadRequests for Client {
     async fn get_last_transaction(&self, account_id: &str) -> ActualResult<LastTransaction> {
         let value = self
             .invoker
-            .invoke("get-last-transaction", json!({ "accountId": account_id }))
+            .invoke(BridgeRequest::GetLastTransaction {
+                account_id: account_id.to_string(),
+            })
             .await?;
         let resp: LastTransactionResponse = serde_json::from_value(value)?;
         Ok(LastTransaction {
@@ -81,10 +84,10 @@ impl ActualReadRequests for Client {
     async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64> {
         let value = self
             .invoker
-            .invoke(
-                "get-balance-at",
-                json!({ "accountId": account_id, "date": date.to_string() }),
-            )
+            .invoke(BridgeRequest::GetBalanceAt {
+                account_id: account_id.to_string(),
+                date: date.to_string(),
+            })
             .await?;
         let resp: BalanceResponse = serde_json::from_value(value)?;
         Ok(resp.balance)
@@ -96,17 +99,16 @@ impl ActualWriteRequests for Client {
     async fn ensure_payee(&self, name: &str) -> ActualResult<String> {
         let value = self
             .invoker
-            .invoke("ensure-payee", json!({ "name": name }))
+            .invoke(BridgeRequest::EnsurePayee {
+                name: name.to_string(),
+            })
             .await?;
         let resp: EnsurePayeeResponse = serde_json::from_value(value)?;
         Ok(resp.id)
     }
 
     async fn add_transaction(&self, tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
-        let value = self
-            .invoker
-            .invoke("add-transaction", serde_json::to_value(&tx)?)
-            .await?;
+        let value = self.invoker.invoke(BridgeRequest::AddTransaction(tx)).await?;
         let resp: AddTransactionResponse = serde_json::from_value(value)?;
         Ok(resp)
     }
@@ -122,7 +124,7 @@ impl ActualWriteRequests for Client {
         };
         let value = self
             .invoker
-            .invoke("import-transaction", serde_json::to_value(&req)?)
+            .invoke(BridgeRequest::ImportTransaction(req))
             .await?;
         let resp: AddTransactionResponse = serde_json::from_value(value)?;
         Ok(resp.id)

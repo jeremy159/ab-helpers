@@ -3,7 +3,7 @@ use std::time::Duration;
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
 
-use crate::{BridgeInvoker, BridgeSession, BridgeTimeouts, Error};
+use crate::{BridgeInvoker, BridgeRequest, BridgeSession, BridgeTimeouts, Error};
 
 fn timeouts() -> BridgeTimeouts {
     BridgeTimeouts {
@@ -75,7 +75,7 @@ async fn happy_path_open_call_close() {
     });
 
     let accounts = session
-        .invoke("list-accounts", Value::Object(Default::default()))
+        .invoke(BridgeRequest::ListAccounts)
         .await
         .unwrap();
     assert_eq!(accounts["accounts"][0]["id"], "a1");
@@ -100,14 +100,14 @@ async fn recoverable_error_leaves_session_usable() {
     });
 
     let err = session
-        .invoke("get-balance", Value::Object(Default::default()))
+        .invoke(BridgeRequest::GetBalance { account_id: "a1".to_string() })
         .await
         .unwrap_err();
     assert!(matches!(err, Error::Api(ref e) if e.code == "missing-account-id"));
 
     // Session must still be usable after a non-fatal error.
     let ok = session
-        .invoke("list-accounts", Value::Object(Default::default()))
+        .invoke(BridgeRequest::ListAccounts)
         .await
         .unwrap();
     assert_eq!(ok["accounts"].as_array().unwrap().len(), 0);
@@ -121,14 +121,14 @@ async fn fatal_error_poisons_session() {
     });
 
     let err = session
-        .invoke("list-accounts", Value::Object(Default::default()))
+        .invoke(BridgeRequest::ListAccounts)
         .await
         .unwrap_err();
     assert!(matches!(err, Error::Api(ref e) if e.fatal));
 
     // Session must now fail fast without touching the pipe.
     let err2 = session
-        .invoke("list-accounts", Value::Object(Default::default()))
+        .invoke(BridgeRequest::ListAccounts)
         .await
         .unwrap_err();
     assert!(matches!(err2, Error::SessionClosed(_)));
@@ -143,7 +143,7 @@ async fn id_mismatch_poisons_session() {
     });
 
     let err = session
-        .invoke("list-accounts", Value::Object(Default::default()))
+        .invoke(BridgeRequest::ListAccounts)
         .await
         .unwrap_err();
     assert!(matches!(err, Error::BridgeProtocol(_)));
@@ -154,7 +154,7 @@ async fn eof_mid_operation_is_bridge_protocol_error() {
     let session = make_session(|_req| None);
 
     let err = session
-        .invoke("list-accounts", Value::Object(Default::default()))
+        .invoke(BridgeRequest::ListAccounts)
         .await
         .unwrap_err();
     assert!(matches!(err, Error::BridgeProtocol(_)));
@@ -177,13 +177,13 @@ async fn timeout_poisons_session() {
     let session = BridgeSession::from_io(write_half, read_half, t);
 
     let err = session
-        .invoke("list-accounts", Value::Object(Default::default()))
+        .invoke(BridgeRequest::ListAccounts)
         .await
         .unwrap_err();
     assert!(matches!(err, Error::Timeout { .. }));
 
     let err2 = session
-        .invoke("list-accounts", Value::Object(Default::default()))
+        .invoke(BridgeRequest::ListAccounts)
         .await
         .unwrap_err();
     assert!(matches!(err2, Error::SessionClosed(_)));

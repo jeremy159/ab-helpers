@@ -20,7 +20,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use crate::ActualResult;
-use crate::bridge::{BridgeConfig, BridgeInvoker, BridgeTimeouts};
+use crate::bridge::{BridgeConfig, BridgeInvoker, BridgeRequest, BridgeTimeouts};
 use crate::error::{ApiError, Error};
 use crate::lock::BudgetLock;
 
@@ -99,7 +99,8 @@ impl BridgeConfig {
                 state: State::Open,
                 child: Some(child),
                 stdin: Box::new(stdin),
-                stdout: BufReader::new(Box::new(stdout) as Box<dyn AsyncRead + Send + Unpin>).lines(),
+                stdout: BufReader::new(Box::new(stdout) as Box<dyn AsyncRead + Send + Unpin>)
+                    .lines(),
                 stderr_tail,
             }),
             next_id: AtomicU64::new(1),
@@ -107,7 +108,7 @@ impl BridgeConfig {
             _lock: Some(lock),
         };
 
-        session.invoke("open", Value::Object(Default::default())).await?;
+        session.invoke(BridgeRequest::Open).await?;
 
         Ok(session)
     }
@@ -161,7 +162,8 @@ impl BridgeSession {
                 state: State::Open,
                 child: None,
                 stdin: Box::new(stdin),
-                stdout: BufReader::new(Box::new(stdout) as Box<dyn AsyncRead + Send + Unpin>).lines(),
+                stdout: BufReader::new(Box::new(stdout) as Box<dyn AsyncRead + Send + Unpin>)
+                    .lines(),
                 stderr_tail: Arc::new(StdMutex::new(VecDeque::new())),
             }),
             next_id: AtomicU64::new(1),
@@ -191,7 +193,7 @@ impl BridgeSession {
             }
         }
 
-        let result = self.invoke("close", Value::Object(Default::default())).await;
+        let result = self.invoke(BridgeRequest::Close).await;
 
         let mut io = self.io.lock().await;
         if let Some(child) = io.child.as_mut() {
@@ -204,7 +206,7 @@ impl BridgeSession {
 
 #[async_trait]
 impl BridgeInvoker for BridgeSession {
-    async fn invoke(&self, operation: &str, args: Value) -> ActualResult<Value> {
+    async fn invoke(&self, request: BridgeRequest) -> ActualResult<Value> {
         let mut io = self.io.lock().await;
 
         match &io.state {
@@ -218,14 +220,16 @@ impl BridgeInvoker for BridgeSession {
         }
 
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let request = serde_json::json!({ "id": id, "operation": operation, "args": args });
-        let line = serde_json::to_string(&request)?;
 
-        let timeout = match operation {
-            "open" => self.timeouts.open,
-            "close" => self.timeouts.close,
+        let timeout = match request {
+            BridgeRequest::Open => self.timeouts.open,
+            BridgeRequest::Close => self.timeouts.close,
             _ => self.timeouts.operation,
         };
+
+        let (operation, args) = request.wire_parts()?;
+        let envelope = serde_json::json!({ "id": id, "operation": operation, "args": args });
+        let line = serde_json::to_string(&envelope)?;
 
         tracing::debug!(%operation, id, "invoking actual bridge session");
 
