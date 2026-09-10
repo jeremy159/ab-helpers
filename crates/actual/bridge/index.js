@@ -76,7 +76,7 @@ async function withTimeout(promise, ms, message) {
   try {
     return await Promise.race([promise, timeout]);
   } finally {
-    return clearTimeout(timer);
+    clearTimeout(timer);
   }
 }
 

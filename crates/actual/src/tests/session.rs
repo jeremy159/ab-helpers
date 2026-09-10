@@ -150,6 +150,34 @@ async fn id_mismatch_poisons_session() {
 }
 
 #[tokio::test]
+async fn null_id_fatal_error_surfaces_actual_message_not_desync() {
+    // The bridge's uncaughtException/unhandledRejection handlers reply with
+    // `id: null` since there's no in-flight request to correlate to. That
+    // must surface as the real error, not a misleading id-mismatch.
+    let session = make_session(|_req| {
+        Some(serde_json::json!({
+            "id": null,
+            "error": {"code": "unhandled", "message": "boom", "fatal": true}
+        }))
+    });
+
+    let err = session
+        .invoke(BridgeRequest::ListAccounts)
+        .await
+        .unwrap_err();
+    match err {
+        Error::Api(api_err) => assert_eq!(api_err.message, "boom"),
+        other => panic!("expected Error::Api, got {other:?}"),
+    }
+
+    let err2 = session
+        .invoke(BridgeRequest::ListAccounts)
+        .await
+        .unwrap_err();
+    assert!(matches!(err2, Error::SessionClosed(_)));
+}
+
+#[tokio::test]
 async fn eof_mid_operation_is_bridge_protocol_error() {
     let session = make_session(|_req| None);
 

@@ -298,6 +298,14 @@ impl BridgeInvoker for BridgeSession {
             }
         };
 
+        if let Some(err_obj) = frame.get("error") {
+            let api_err: ApiError = serde_json::from_value(err_obj.clone())?;
+            if api_err.fatal {
+                io.state = State::Poisoned(api_err.message.clone());
+            }
+            return Err(Error::Api(api_err));
+        }
+
         let resp_id = frame.get("id").and_then(Value::as_u64);
         if resp_id != Some(id) {
             let reason = format!(
@@ -306,14 +314,6 @@ impl BridgeInvoker for BridgeSession {
             );
             io.state = State::Poisoned(reason.clone());
             return Err(Error::BridgeProtocol(reason));
-        }
-
-        if let Some(err_obj) = frame.get("error") {
-            let api_err: ApiError = serde_json::from_value(err_obj.clone())?;
-            if api_err.fatal {
-                io.state = State::Poisoned(api_err.message.clone());
-            }
-            return Err(Error::Api(api_err));
         }
 
         Ok(frame.get("ok").cloned().unwrap_or(Value::Null))
