@@ -214,6 +214,9 @@ mod tests {
         ) -> actual::ActualResult<i64> {
             unimplemented!("not needed for reconcile tests")
         }
+        async fn get_account_note(&self, _id: &str) -> actual::ActualResult<Option<String>> {
+            unimplemented!("not needed for reconcile tests")
+        }
     }
 
     #[async_trait]

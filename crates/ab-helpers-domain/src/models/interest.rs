@@ -48,6 +48,27 @@ impl InterestPeriod {
     }
 }
 
+/// Parses the `interestRate:<value>` token out of an Actual account note
+///
+/// e.g. `"...interestRate:0.0699 ..."` -> `Some(0.0699)`
+pub fn parse_interest_rate(note: &str) -> Option<f64> {
+    let after = note.split("interestRate:").nth(1)?;
+    let token = after.split(char::is_whitespace).next()?;
+    token.parse::<f64>().ok()
+}
+
+/// Formats a rate as a percentage with up to 2 decimals, dropping trailing
+/// zeros
+///
+/// e.g. `0.0699` -> `"6.99%"`, `0.05` -> `"5%"`, `0.069` -> `"6.9%"`
+pub fn format_percent(rate: f64) -> String {
+    let rounded = (rate * 100.0 * 100.0).round() / 100.0;
+    let s = format!("{rounded:.2}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+
+    format!("{s}%")
+}
+
 pub struct BankPaymentResult {
     pub interest: Money,
     pub principal: Money,

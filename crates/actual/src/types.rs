@@ -75,6 +75,12 @@ pub struct EnsurePayeeResponse {
 }
 
 #[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountNoteResponse {
+    pub note: Option<String>,
+}
+
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone)]
 pub struct ImportTransaction {
     pub account_id: String,

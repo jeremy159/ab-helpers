@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 struct FakeClient {
     accounts: Vec<Account>,
+    note: Option<String>,
     last_tx: LastTransaction,
     balance: i64,
     payee_id: String,
@@ -32,6 +33,9 @@ impl actual::ActualReadRequests for FakeClient {
     }
     async fn get_balance_at(&self, _id: &str, _date: NaiveDate) -> ActualResult<i64> {
         Ok(self.balance)
+    }
+    async fn get_account_note(&self, _id: &str) -> ActualResult<Option<String>> {
+        Ok(self.note.clone())
     }
 }
 
@@ -63,6 +67,7 @@ fn make_account(id: &str, closed: bool) -> Account {
 fn make_client(closed: bool) -> Arc<FakeClient> {
     Arc::new(FakeClient {
         accounts: vec![make_account("acc-1", closed)],
+        note: Some("Kia Carnival 2026\ninterestRate:0.0699".into()),
         last_tx: LastTransaction {
             date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
             amount: 10000,
@@ -120,13 +125,72 @@ async fn applies_interest_and_imports_transaction() {
     assert_eq!(tx.account_id, "acc-1");
     assert_eq!(tx.payee_id, "payee-1");
     assert_eq!(tx.cleared, Some(true));
-    assert!(tx.notes.as_deref().unwrap_or("").contains("semaine"));
+    let notes = tx.notes.as_deref().unwrap_or("");
+    assert!(notes.contains("semaine"));
+    // The displayed rate comes from the account note's `interestRate:` token
+    // (6.99%), not from the internal weekly rate used for the math (0.13%).
+    assert!(notes.contains("6.99%"));
+}
+
+#[tokio::test]
+async fn falls_back_to_config_rate_when_note_has_no_interest_rate() {
+    let client = Arc::new(FakeClient {
+        accounts: vec![make_account("acc-1", false)],
+        note: Some("just a regular note".into()),
+        last_tx: LastTransaction {
+            date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
+            amount: 10000,
+        },
+        balance: -50000,
+        payee_id: "payee-1".into(),
+        imported_tx: Default::default(),
+    });
+    let svc = InterestService::new(client.clone(), kia_config());
+    let outcome = svc.run::<Live>().await.unwrap();
+    assert!(matches!(outcome, LiveOutcome::Applied { .. }));
+
+    let tx = client
+        .imported_tx
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("tx imported");
+    // No interestRate: token in the note - falls back to the internal
+    // weekly rate (0.13%) instead of skipping the run.
+    assert!(tx.notes.as_deref().unwrap_or("").contains("0.13%"));
+}
+
+#[tokio::test]
+async fn falls_back_to_config_rate_when_account_has_no_note_at_all() {
+    let client = Arc::new(FakeClient {
+        accounts: vec![make_account("acc-1", false)],
+        note: None,
+        last_tx: LastTransaction {
+            date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
+            amount: 10000,
+        },
+        balance: -50000,
+        payee_id: "payee-1".into(),
+        imported_tx: Default::default(),
+    });
+    let svc = InterestService::new(client.clone(), kia_config());
+    let outcome = svc.run::<Live>().await.unwrap();
+    assert!(matches!(outcome, LiveOutcome::Applied { .. }));
+
+    let tx = client
+        .imported_tx
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("tx imported");
+    assert!(tx.notes.as_deref().unwrap_or("").contains("0.13%"));
 }
 
 #[tokio::test]
 async fn returns_no_interest_when_zero() {
     let client = Arc::new(FakeClient {
         accounts: vec![make_account("acc-1", false)],
+        note: Some("interestRate:0.0699".into()),
         last_tx: LastTransaction {
             date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
             amount: 0,

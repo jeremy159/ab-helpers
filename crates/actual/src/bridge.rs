@@ -32,7 +32,7 @@ impl Default for BridgeTimeouts {
         Self {
             open: Duration::from_secs(300),
             operation: Duration::from_secs(120),
-            close: Duration::from_secs(300),
+            close: Duration::from_secs(90),
             lock: Duration::from_secs(120),
         }
     }
@@ -86,6 +86,8 @@ pub enum BridgeRequest {
     GetLastTransaction { account_id: String },
     #[serde(rename = "ensure-payee")]
     EnsurePayee { name: String },
+    #[serde(rename = "get-account-note", rename_all = "camelCase")]
+    GetAccountNote { account_id: String },
     #[serde(rename = "add-transaction")]
     AddTransaction(SaveTransaction),
     #[serde(rename = "import-transaction")]

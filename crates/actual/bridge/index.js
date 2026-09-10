@@ -65,6 +65,21 @@ function writeFrame(obj) {
   writeRaw(JSON.stringify(obj) + "\n");
 }
 
+async function withTimeout(promise, ms, message) {
+  let timer;
+
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+    timer.unref?.();
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    return clearTimeout(timer);
+  }
+}
+
 let api;
 try {
   api = require("@actual-app/api");
@@ -129,10 +144,44 @@ const OPERATIONS = {
   "get-balance-at": getBalanceAt,
   "ensure-payee": ensurePayee,
   "import-transaction": importTransaction,
+  "get-account-note": getAccountNote,
 };
+
+const OPERATION_TIMEOUT_MS = {
+  open: 300_000, // api.init() + downloadBudget() of a potentially large file
+  close: 60_000, // final sync + shutdown
+};
+const DEFAULT_OPERATION_TIMEOUT_MS = 120_000;
+
+async function dispatchOperation(operation, args, opened) {
+  const timeoutMs =
+    OPERATION_TIMEOUT_MS[operation] ?? DEFAULT_OPERATION_TIMEOUT_MS;
+
+  try {
+    return await withTimeout(
+      handleOperation(operation, args, opened),
+      timeoutMs,
+      `operation \`${operation}\` timed out after ${timeoutMs}ms`,
+    );
+  } catch (err) {
+    return {
+      // Conservative: we don't know how far the stalled operation got, so
+      // assume it may need cleanup rather than skipping `shutdown()`.
+      opened: true,
+      frame: {
+        error: { code: "operation-timeout", message: err.message, fatal: true },
+      },
+    };
+  }
+}
 
 async function serve() {
   let opened = false;
+  // Set once `close` has already run `closeBudget()` (sync + shutdown)
+  // successfully, so the `finally` block below can skip its own redundant
+  // shutdown attempt and exit immediately instead of depending on
+  // `api.shutdown()` happening to no-op cheaply the second time around.
+  let closedCleanly = false;
   const rl = readline.createInterface({
     input: process.stdin,
     crlfDelay: Infinity,
@@ -158,9 +207,13 @@ async function serve() {
       }
 
       const { id, operation, args } = req && typeof req === "object" ? req : {};
-      const outcome = await handleOperation(operation, args || {}, opened);
+      const outcome = await dispatchOperation(operation, args || {}, opened);
       opened = outcome.opened;
       writeFrame({ id: id === undefined ? null : id, ...outcome.frame });
+
+      if (operation === "close" && !outcome.frame.error) {
+        closedCleanly = true;
+      }
 
       if (
         operation === "close" ||
@@ -170,13 +223,20 @@ async function serve() {
       }
     }
   } finally {
-    // Covers: a clean `close` (shutdown already ran, this is a harmless
-    // no-op), a fatal error mid-session, and the parent going away (stdin
-    // EOF) without ever sending `close`.
-    if (opened) {
-      await api.shutdown().catch(() => {});
+    rl.close();
+    process.stdin.pause();
+    process.stdin.unref();
+
+    // A clean `close` already shut down; otherwise clean up now, bounded so
+    // a stalled `shutdown()` can't block exit.
+    if (opened && !closedCleanly) {
+      await withTimeout(api.shutdown(), 15_000, "shutdown timed out").catch(
+        () => {},
+      );
     }
   }
+
+  process.exit(0);
 }
 
 async function handleOperation(operation, args, opened) {
@@ -535,6 +595,18 @@ async function getBalanceAt({ accountId, date }) {
       .options({ splits: "grouped" }),
   );
   return { balance: Number(data.data) };
+}
+
+async function getAccountNote({ accountId }) {
+  if (!accountId) throwApi("missing-account-id", "accountId is required");
+  const data = await api.runQuery(
+    api
+      .q("notes")
+      .filter({ id: `account-${accountId}` })
+      .select("*"),
+  );
+  const note = data.data[0]?.note;
+  return { note: note || null };
 }
 
 async function ensurePayee({ name }) {

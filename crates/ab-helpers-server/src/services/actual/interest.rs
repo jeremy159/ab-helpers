@@ -84,7 +84,9 @@ impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
         self.writer.as_ref()
     }
 
-    async fn plan(ctx: &InterestPlanCtx<R>) -> ABHelpersResult<PlanOutcome<InterestSkip, InterestPlan>> {
+    async fn plan(
+        ctx: &InterestPlanCtx<R>,
+    ) -> ABHelpersResult<PlanOutcome<InterestSkip, InterestPlan>> {
         use ab_helpers_domain::apply_bank_payment;
 
         let accounts = ctx.reader.list_accounts().await?;
@@ -96,6 +98,12 @@ impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
         if account.closed {
             return Ok(PlanOutcome::Skip(InterestSkip::AccountClosed));
         }
+
+        let note = ctx.reader.get_account_note(&account.id).await?;
+        let rate = note
+            .as_deref()
+            .and_then(ab_helpers_domain::parse_interest_rate)
+            .unwrap_or(ctx.config.rate);
 
         let last_tx = ctx.reader.get_last_transaction(&account.id).await?;
 
@@ -115,9 +123,9 @@ impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
         }
 
         let notes = format!(
-            "Intérêt pour 1 {} à {:.2}%",
+            "Intérêt pour 1 {} à {}",
             ctx.config.period.notes_label(),
-            ctx.config.rate * 100.0
+            ab_helpers_domain::format_percent(rate)
         );
 
         Ok(PlanOutcome::Ready(InterestPlan {

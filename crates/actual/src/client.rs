@@ -5,9 +5,9 @@ use async_trait::async_trait;
 use crate::bridge::{BridgeConfig, BridgeInvoker, BridgeRequest};
 use crate::error::ActualResult;
 use crate::types::{
-    Account, AddTransactionResponse, BalanceResponse, EnsurePayeeResponse, ImportTransaction,
-    ImportTransactionRequest, LastTransaction, LastTransactionResponse, ListAccountsResponse,
-    SaveTransaction,
+    Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, EnsurePayeeResponse,
+    ImportTransaction, ImportTransactionRequest, LastTransaction, LastTransactionResponse,
+    ListAccountsResponse, SaveTransaction,
 };
 
 /// High-level Rust client.
@@ -38,6 +38,7 @@ pub trait ActualReadRequests: Send + Sync {
     async fn get_account_balance(&self, account_id: &str) -> ActualResult<i64>;
     async fn get_last_transaction(&self, account_id: &str) -> ActualResult<LastTransaction>;
     async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64>;
+    async fn get_account_note(&self, account_id: &str) -> ActualResult<Option<String>>;
 }
 
 /// Write operations: creating payees and posting transactions.
@@ -92,6 +93,17 @@ impl ActualReadRequests for Client {
         let resp: BalanceResponse = serde_json::from_value(value)?;
         Ok(resp.balance)
     }
+
+    async fn get_account_note(&self, account_id: &str) -> ActualResult<Option<String>> {
+        let value = self
+            .invoker
+            .invoke(BridgeRequest::GetAccountNote {
+                account_id: account_id.to_string(),
+            })
+            .await?;
+        let resp: AccountNoteResponse = serde_json::from_value(value)?;
+        Ok(resp.note)
+    }
 }
 
 #[async_trait]
@@ -108,7 +120,10 @@ impl ActualWriteRequests for Client {
     }
 
     async fn add_transaction(&self, tx: SaveTransaction) -> ActualResult<AddTransactionResponse> {
-        let value = self.invoker.invoke(BridgeRequest::AddTransaction(tx)).await?;
+        let value = self
+            .invoker
+            .invoke(BridgeRequest::AddTransaction(tx))
+            .await?;
         let resp: AddTransactionResponse = serde_json::from_value(value)?;
         Ok(resp)
     }
@@ -145,6 +160,7 @@ mockall::mock! {
         async fn get_account_balance(&self, account_id: &str) -> ActualResult<i64>;
         async fn get_last_transaction(&self, account_id: &str) -> ActualResult<LastTransaction>;
         async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64>;
+        async fn get_account_note(&self, account_id: &str) -> ActualResult<Option<String>>;
     }
 }
 

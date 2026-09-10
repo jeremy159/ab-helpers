@@ -196,8 +196,16 @@ impl BridgeSession {
         let result = self.invoke(BridgeRequest::Close).await;
 
         let mut io = self.io.lock().await;
-        if let Some(child) = io.child.as_mut() {
-            let _ = tokio::time::timeout(self.timeouts.close, child.wait()).await;
+        if let Some(child) = io.child.as_mut()
+            && tokio::time::timeout(self.timeouts.close, child.wait())
+                .await
+                .is_err()
+        {
+            // The bridge didn't exit on its own within the timeout (e.g. it
+            // answered `close` but got stuck tearing down afterwards) - kill
+            // it rather than waiting unboundedly.
+            let _ = child.start_kill();
+            let _ = child.wait().await;
         }
         io.state = State::Closed;
         result.map(|_| ())
@@ -233,18 +241,13 @@ impl BridgeInvoker for BridgeSession {
 
         tracing::debug!(%operation, id, "invoking actual bridge session");
 
-        if let Err(e) = write_line(&mut *io.stdin, &line).await {
-            let reason = format!(
-                "failed to write to bridge stdin: {e}{}",
-                stderr_suffix(&io.stderr_tail)
-            );
-            io.state = State::Poisoned(reason.clone());
-            return Err(Error::Bridge(reason));
-        }
+        let round_trip = tokio::time::timeout(timeout, async {
+            write_line(&mut *io.stdin, &line).await?;
+            io.stdout.next_line().await
+        })
+        .await;
 
-        let read = tokio::time::timeout(timeout, io.stdout.next_line()).await;
-
-        let response_line = match read {
+        let response_line = match round_trip {
             Err(_elapsed) => {
                 let reason = format!(
                     "operation `{operation}` timed out after {timeout:?}{}",
@@ -261,7 +264,7 @@ impl BridgeInvoker for BridgeSession {
             }
             Ok(Err(e)) => {
                 let reason = format!(
-                    "failed reading bridge stdout: {e}{}",
+                    "bridge I/O failed while sending `{operation}`: {e}{}",
                     stderr_suffix(&io.stderr_tail)
                 );
                 io.state = State::Poisoned(reason.clone());

@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 
-use crate::{Money, apply_bank_payment, mortgage_cutoff};
+use crate::{Money, apply_bank_payment, format_percent, mortgage_cutoff, parse_interest_rate};
 
 #[test]
 fn interest_rounds_when_round_true() {
@@ -106,4 +106,39 @@ fn mortgage_cutoff_end_of_march_non_leap_year() {
         mortgage_cutoff(d),
         NaiveDate::from_ymd_opt(2023, 2, 27).unwrap()
     );
+}
+
+// parse_interest_rate
+
+#[test]
+fn parse_interest_rate_finds_token_mid_note() {
+    assert_eq!(
+        parse_interest_rate("Kia Carnival 2026\ninterestRate:0.0699\nother stuff"),
+        Some(0.0699)
+    );
+}
+
+#[test]
+fn parse_interest_rate_finds_token_at_end() {
+    assert_eq!(parse_interest_rate("interestRate:0.0429"), Some(0.0429));
+}
+
+#[test]
+fn parse_interest_rate_missing_token_returns_none() {
+    assert_eq!(parse_interest_rate("just a regular note"), None);
+}
+
+#[test]
+fn parse_interest_rate_malformed_value_returns_none() {
+    assert_eq!(parse_interest_rate("interestRate:not-a-number"), None);
+}
+
+// format_percent
+
+#[test]
+fn format_percent_trims_trailing_zeros() {
+    assert_eq!(format_percent(0.0699), "6.99%");
+    assert_eq!(format_percent(0.0429), "4.29%");
+    assert_eq!(format_percent(0.05), "5%");
+    assert_eq!(format_percent(0.069), "6.9%");
 }
