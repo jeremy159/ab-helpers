@@ -466,6 +466,9 @@ async function main() {
       case "import-transaction":
         result = await importTransaction(args);
         break;
+      case "get-account-note":
+        result = await getAccountNote(args);
+        break;
       default:
         emitError("unknown-subcommand", `unknown subcommand: ${subcommand}`);
         process.exit(1);

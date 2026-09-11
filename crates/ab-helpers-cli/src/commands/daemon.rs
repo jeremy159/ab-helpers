@@ -200,21 +200,17 @@ async fn run_interest(
     data_dir: &Path,
 ) {
     let label = kind.label();
-    let client = match settings.actual.client().await {
-        Ok(client) => Arc::new(client),
-        Err(err) => {
-            tracing::error!(
-                ?err,
-                kind = label,
-                "failed to set up Actual bridge client: will retry next scheduled tick"
-            );
-            return;
-        }
-    };
     let config = kind.config(settings);
-    let service = InterestService::new(client, config);
 
-    match service.run::<Live>().await {
+    let outcome = settings
+        .actual
+        .with_session(move |client| async move {
+            let service = InterestService::new(client, config);
+            service.run::<Live>().await
+        })
+        .await;
+
+    match outcome {
         Ok(ab_helpers_domain::LiveOutcome::Skip(reason)) => {
             tracing::info!(?reason, kind = label, "interest skipped");
             let mut s = state.lock().await;

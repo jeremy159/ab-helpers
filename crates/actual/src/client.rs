@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::bridge::{BridgeConfig, BridgeInvoker, BridgeRequest};
+use crate::bridge::{BridgeInvoker, BridgeRequest};
 use crate::error::ActualResult;
 use crate::types::{
     Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, EnsurePayeeResponse,
@@ -20,12 +20,6 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(config: BridgeConfig) -> Self {
-        Self {
-            invoker: Arc::new(config),
-        }
-    }
-
     pub fn with_invoker(invoker: Arc<dyn BridgeInvoker>) -> Self {
         Self { invoker }
     }

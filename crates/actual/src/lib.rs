@@ -3,17 +3,16 @@
 //! Actual ships a JS-only programmatic library (`@actual-app/api`); we drive
 //! it from Rust through a small Node bridge living in `crates/actual/bridge`.
 //!
-//! The preferred path is [`BridgeSession`] (`BridgeConfig::open_session`):
+//! All calls go through [`BridgeSession`] (`BridgeConfig::open_session`):
 //! one `node index.js serve` process, and one open Actual budget, reused for
 //! every call that makes up a single logical operation (e.g. one CLI
 //! command), talking newline-delimited JSON over its stdin/stdout. This
 //! avoids re-downloading/re-syncing the whole local budget replica per call,
 //! and gives a consistent snapshot across a command's several reads.
 //!
-//! `BridgeConfig` itself also implements [`BridgeInvoker`] directly, as a
-//! single-shot fallback: each call spawns the bridge fresh with one
-//! subcommand and reads one JSON line back. Kept for callers that only ever
-//! make one call.
+//! The bridge script also supports a single-shot invocation mode
+//! (`node index.js <subcommand> --json '<args>'`), kept for manual debugging
+//! (e.g. `npm run list-accounts`) but with no Rust-side caller.
 
 mod bridge;
 mod client;

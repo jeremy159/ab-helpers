@@ -10,7 +10,10 @@ COPY crates/ ./crates/
 RUN cargo build --release -p ab-helpers-cli
 
 # Stage 2: install Node bridge deps
-FROM node:20-alpine AS node-setup
+FROM node:20-bookworm-slim AS node-setup
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /bridge
 COPY crates/actual/bridge/package*.json ./
 RUN npm ci --omit=dev

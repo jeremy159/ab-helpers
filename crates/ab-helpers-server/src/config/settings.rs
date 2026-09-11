@@ -195,14 +195,6 @@ impl ActualSettings {
         })
     }
 
-    /// One-shot client: spawns a fresh bridge process per call. Simple, but
-    /// re-downloads/re-syncs the whole local budget replica every time -
-    /// prefer [`ActualSettings::with_session`] for anything that makes more
-    /// than one call.
-    pub async fn client(&self) -> anyhow::Result<actual::Client> {
-        Ok(actual::Client::new(self.bridge_config().await?))
-    }
-
     /// Opens one bridge session (one `node` process, one open budget) and
     /// runs `f` against a client built on top of it, always closing the
     /// session afterwards - on success, on error, and in between.

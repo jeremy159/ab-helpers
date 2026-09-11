@@ -1,17 +1,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Stdio;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use secrecy::{ExposeSecret, Secret};
 use serde::Serialize;
 use serde_json::Value;
-use tokio::io::AsyncReadExt;
-use tokio::process::Command;
 
 use crate::ActualResult;
-use crate::error::{ApiError, Error};
 use crate::types::{ImportTransactionRequest, SaveTransaction};
 
 /// Timeouts governing a [`crate::session::BridgeSession`].
@@ -54,8 +50,7 @@ pub struct BridgeConfig {
 }
 
 impl BridgeConfig {
-    /// Env vars forwarded to the bridge process, shared by the single-shot
-    /// invoker below and by [`crate::session::BridgeSession::open`].
+    /// Env vars forwarded to the bridge process by [`crate::session::BridgeSession::open`].
     pub(crate) fn env(&self) -> HashMap<&'static str, String> {
         let mut env: HashMap<&'static str, String> = HashMap::new();
         env.insert("ACTUAL_SERVER_URL", self.server_url.clone());
@@ -114,59 +109,4 @@ impl BridgeRequest {
 #[async_trait]
 pub trait BridgeInvoker: Send + Sync {
     async fn invoke(&self, request: BridgeRequest) -> ActualResult<Value>;
-}
-
-#[async_trait]
-impl BridgeInvoker for BridgeConfig {
-    async fn invoke(&self, request: BridgeRequest) -> ActualResult<Value> {
-        let (subcommand, args) = request.wire_parts()?;
-        let args_json = serde_json::to_string(&args)?;
-
-        tracing::debug!(?subcommand, "invoking actual bridge");
-
-        let mut cmd = Command::new(&self.node_bin);
-        cmd.arg(&self.bridge_script)
-            .arg(&subcommand)
-            .arg("--json")
-            .arg(&args_json)
-            .envs(self.env())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let mut child = cmd.spawn().map_err(|e| {
-            Error::Bridge(format!(
-                "failed to spawn `{} {}`: {e}",
-                self.node_bin.display(),
-                self.bridge_script.display()
-            ))
-        })?;
-
-        let mut stdout = String::new();
-        if let Some(mut s) = child.stdout.take() {
-            s.read_to_string(&mut stdout).await?;
-        }
-        let mut stderr = String::new();
-        if let Some(mut s) = child.stderr.take() {
-            s.read_to_string(&mut stderr).await?;
-        }
-        let status = child.wait().await?;
-        if !status.success() {
-            tracing::warn!(%subcommand, exit_code = ?status.code(), "bridge exited with non-zero status");
-        }
-
-        let value: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
-            Error::BridgeProtocol(format!(
-                "could not parse bridge stdout as JSON: {e}\nstdout: {}\nstderr: {}",
-                stdout.trim(),
-                stderr.trim()
-            ))
-        })?;
-
-        if let Some(err_obj) = value.get("error") {
-            let api_err: ApiError = serde_json::from_value(err_obj.clone())?;
-            return Err(Error::Api(api_err));
-        }
-
-        Ok(value)
-    }
 }
