@@ -217,6 +217,14 @@ mod tests {
         async fn get_account_note(&self, _id: &str) -> actual::ActualResult<Option<String>> {
             unimplemented!("not needed for reconcile tests")
         }
+        async fn find_transaction(
+            &self,
+            _account_id: &str,
+            _date: chrono::NaiveDate,
+            _payee_name: &str,
+        ) -> actual::ActualResult<Option<actual::ExistingTransaction>> {
+            unimplemented!("not needed for reconcile tests")
+        }
     }
 
     #[async_trait]

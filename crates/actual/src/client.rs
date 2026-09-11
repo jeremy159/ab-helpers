@@ -2,12 +2,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::Error;
 use crate::bridge::{BridgeInvoker, BridgeRequest};
 use crate::error::ActualResult;
 use crate::types::{
     Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, EnsurePayeeResponse,
-    ImportTransaction, ImportTransactionRequest, LastTransaction, LastTransactionResponse,
-    ListAccountsResponse, SaveTransaction,
+    ExistingTransaction, FindTransactionResponse, ImportTransaction, ImportTransactionRequest,
+    LastTransaction, LastTransactionResponse, ListAccountsResponse, SaveTransaction,
 };
 
 /// High-level Rust client.
@@ -33,6 +34,15 @@ pub trait ActualReadRequests: Send + Sync {
     async fn get_last_transaction(&self, account_id: &str) -> ActualResult<LastTransaction>;
     async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64>;
     async fn get_account_note(&self, account_id: &str) -> ActualResult<Option<String>>;
+    /// Looks up an existing transaction on `account_id` dated `date` with payee
+    /// `payee_name`. Returns what that transaction actually holds (payee
+    /// name, date, amount) if one already exists.
+    async fn find_transaction(
+        &self,
+        account_id: &str,
+        date: chrono::NaiveDate,
+        payee_name: &str,
+    ) -> ActualResult<Option<ExistingTransaction>>;
 }
 
 /// Write operations: creating payees and posting transactions.
@@ -98,6 +108,41 @@ impl ActualReadRequests for Client {
         let resp: AccountNoteResponse = serde_json::from_value(value)?;
         Ok(resp.note)
     }
+
+    async fn find_transaction(
+        &self,
+        account_id: &str,
+        date: chrono::NaiveDate,
+        payee_name: &str,
+    ) -> ActualResult<Option<ExistingTransaction>> {
+        let value = self
+            .invoker
+            .invoke(BridgeRequest::FindTransaction {
+                account_id: account_id.to_string(),
+                date: date.to_string(),
+                payee_name: payee_name.to_string(),
+            })
+            .await?;
+        let resp: FindTransactionResponse = serde_json::from_value(value)?;
+        if !resp.found {
+            return Ok(None);
+        }
+        Ok(Some(ExistingTransaction {
+            payee_name: resp.payee_name.ok_or_else(|| {
+                Error::BridgeProtocol(
+                    "find-transaction reported found:true without a payeeName".into(),
+                )
+            })?,
+            date: resp.date.ok_or_else(|| {
+                Error::BridgeProtocol("find-transaction reported found:true without a date".into())
+            })?,
+            amount: resp.amount.ok_or_else(|| {
+                Error::BridgeProtocol(
+                    "find-transaction reported found:true without an amount".into(),
+                )
+            })?,
+        }))
+    }
 }
 
 #[async_trait]
@@ -155,6 +200,12 @@ mockall::mock! {
         async fn get_last_transaction(&self, account_id: &str) -> ActualResult<LastTransaction>;
         async fn get_balance_at(&self, account_id: &str, date: chrono::NaiveDate) -> ActualResult<i64>;
         async fn get_account_note(&self, account_id: &str) -> ActualResult<Option<String>>;
+        async fn find_transaction(
+            &self,
+            account_id: &str,
+            date: chrono::NaiveDate,
+            payee_name: &str,
+        ) -> ActualResult<Option<ExistingTransaction>>;
     }
 }
 

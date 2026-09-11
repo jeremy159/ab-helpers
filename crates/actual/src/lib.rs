@@ -30,8 +30,8 @@ pub use error::{ActualResult, Error};
 pub use managed_bridge::ensure_managed_bridge_script;
 pub use session::BridgeSession;
 pub use types::{
-    Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, ImportTransaction,
-    LastTransaction, ListAccountsResponse, SaveTransaction,
+    Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, ExistingTransaction,
+    ImportTransaction, LastTransaction, ListAccountsResponse, SaveTransaction,
 };
 
 #[cfg(feature = "testutils")]

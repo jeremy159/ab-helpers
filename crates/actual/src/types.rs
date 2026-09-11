@@ -76,6 +76,29 @@ pub struct EnsurePayeeResponse {
 
 #[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FindTransactionResponse {
+    pub found: bool,
+    #[serde(default)]
+    pub payee_name: Option<String>,
+    #[serde(default)]
+    pub date: Option<NaiveDate>,
+    #[serde(default)]
+    pub amount: Option<i64>,
+}
+
+/// An existing transaction found on an account for a given date/payee - what
+/// we already know about it without a second round-trip.
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
+#[derive(Debug, Clone)]
+pub struct ExistingTransaction {
+    pub payee_name: String,
+    pub date: NaiveDate,
+    pub amount: i64,
+}
+
+#[cfg_attr(any(feature = "testutils", test), derive(fake::Dummy))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AccountNoteResponse {
     pub note: Option<String>,
 }

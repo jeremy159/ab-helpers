@@ -12,6 +12,11 @@ pub struct InterestArgs {
     /// Print what would be done without writing anything to Actual.
     #[arg(long)]
     pub dry_run: bool,
+
+    /// Post the interest transaction even if one already exists for that
+    /// account/date/payee.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -50,11 +55,12 @@ pub async fn run(
 
     let config = kind.config(&settings);
     let dry_run = args.dry_run;
+    let force = args.force;
 
     settings
         .actual
         .with_session(move |client| async move {
-            let service = InterestService::new(client, config);
+            let service = InterestService::new(client, config, force);
 
             if dry_run {
                 tracing::debug!(kind = label, "previewing interest (dry-run)");
@@ -74,6 +80,19 @@ pub async fn run(
                         tracing::info!(balance = %balance, %cutoff, kind = label, "no {label} interest to apply (DRY-RUN)");
                         Ok(())
                     }
+                    Preview::Skip(InterestSkip::AlreadyApplied { payee_name, date, amount }) => {
+                        tracing::warn!(
+                            %payee_name,
+                            %date,
+                            %amount,
+                            kind = label,
+                            "{label} interest already applied - skipping (DRY-RUN)"
+                        );
+                        println!(
+                            "== {label} (DRY-RUN) ==\n  -> Already applied: \"{payee_name}\" for {amount} on {date}. Use --force to add another."
+                        );
+                        Ok(())
+                    }
                     Preview::WouldApply(plan) => {
                         tracing::info!(
                             balance = %plan.balance,
@@ -86,7 +105,7 @@ pub async fn run(
                             "{label} interest would apply (DRY-RUN)"
                         );
                         println!(
-                            "{label} interest (DRY-RUN)\n  Last transaction: {}\n  Cutoff date:      {}\n  Balance:          {}\n  Interest:         {}\n  New balance:      {}\n  Notes:            {}",
+                            "== {label} (DRY-RUN) ==\n  -> Last transaction: {}\n  -> Cutoff date:      {}\n  -> Balance:          {}\n  -> Interest:         {}\n  -> New balance:      {}\n  -> Notes:            {}",
                             plan.last_tx_date,
                             plan.cutoff,
                             plan.balance,
@@ -111,6 +130,18 @@ pub async fn run(
                 LiveOutcome::Skip(InterestSkip::NoInterest { balance, .. }) => {
                     tracing::info!(balance = %balance, kind = label, "no {label} interest to apply");
                 }
+                LiveOutcome::Skip(InterestSkip::AlreadyApplied { payee_name, date, amount }) => {
+                    tracing::warn!(
+                        %payee_name,
+                        %date,
+                        %amount,
+                        kind = label,
+                        "{label} interest already applied - skipping"
+                    );
+                    println!(
+                        "== {label} ==\n  -> Already applied: \"{payee_name}\" for {amount} on {date}. Use --force to add another."
+                    );
+                }
                 LiveOutcome::Applied {
                     balance,
                     interest,
@@ -126,7 +157,7 @@ pub async fn run(
                         "{label} interest applied"
                     );
                     println!(
-                        "{label} interest applied\n  Balance:      {balance}\n  Interest:     {interest}\n  New balance:  {new_balance}\n  Transaction:  {transaction_id}"
+                        "== {label} ==\n  -> Balance:      {balance}\n  -> Interest:     {interest}\n  -> New balance:  {new_balance}\n  -> Transaction:  {transaction_id}"
                     );
                 }
             }

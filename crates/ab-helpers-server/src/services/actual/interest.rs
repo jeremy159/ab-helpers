@@ -43,6 +43,9 @@ impl<W: ActualWriteClient + 'static> RunMode<InterestSkip, InterestPlan, W> for 
 pub struct InterestPlanCtx<R> {
     pub reader: Arc<R>,
     pub config: InterestConfig,
+    /// Skips the already-applied check when `true`, allowing a second
+    /// transaction for the same account/date/payee to be posted.
+    pub force: bool,
 }
 
 /// Service that computes and optionally applies interest for one Actual account.
@@ -56,11 +59,12 @@ pub struct InterestService<R, W = R> {
 }
 
 impl<C: ActualClient + 'static> InterestService<C, C> {
-    pub fn new(client: Arc<C>, config: InterestConfig) -> Self {
+    pub fn new(client: Arc<C>, config: InterestConfig, force: bool) -> Self {
         Self {
             plan_ctx: InterestPlanCtx {
                 reader: Arc::clone(&client),
                 config,
+                force,
             },
             writer: client,
         }
@@ -106,6 +110,20 @@ impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
             .unwrap_or(ctx.config.rate);
 
         let last_tx = ctx.reader.get_last_transaction(&account.id).await?;
+
+        if !ctx.force {
+            let existing = ctx
+                .reader
+                .find_transaction(&account.id, last_tx.date, &ctx.config.payee_name)
+                .await?;
+            if let Some(existing) = existing {
+                return Ok(PlanOutcome::Skip(InterestSkip::AlreadyApplied {
+                    payee_name: existing.payee_name,
+                    date: existing.date,
+                    amount: Money::from_cents(existing.amount),
+                }));
+            }
+        }
 
         let cutoff = ctx.config.period.cutoff_for(last_tx.date);
 

@@ -8,6 +8,11 @@ use super::money::Money;
 pub enum InterestSkip {
     AccountClosed,
     NoInterest { balance: Money, cutoff: NaiveDate },
+    AlreadyApplied {
+        payee_name: String,
+        date: NaiveDate,
+        amount: Money,
+    },
 }
 
 /// Outcome of a live (write) interest execution.

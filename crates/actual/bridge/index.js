@@ -145,6 +145,7 @@ const OPERATIONS = {
   "ensure-payee": ensurePayee,
   "import-transaction": importTransaction,
   "get-account-note": getAccountNote,
+  "find-transaction": findTransaction,
 };
 
 const OPERATION_TIMEOUT_MS = {
@@ -469,6 +470,9 @@ async function main() {
       case "get-account-note":
         result = await getAccountNote(args);
         break;
+      case "find-transaction":
+        result = await findTransaction(args);
+        break;
       default:
         emitError("unknown-subcommand", `unknown subcommand: ${subcommand}`);
         process.exit(1);
@@ -610,6 +614,34 @@ async function getAccountNote({ accountId }) {
   );
   const note = data.data[0]?.note;
   return { note: note || null };
+}
+
+async function findTransaction({ accountId, date, payeeName }) {
+  if (!accountId) throwApi("missing-account-id", "accountId is required");
+  if (!date) throwApi("missing-date", "date is required");
+  if (!payeeName) throwApi("missing-payee-name", "payeeName is required");
+
+  const payees = await api.getPayees();
+  const payee = payees.find((p) => p.name === payeeName);
+  if (!payee) return { found: false };
+
+  const data = await api.runQuery(
+    api
+      .q("transactions")
+      .filter({ account: accountId, date, payee: String(payee.id) })
+      .select(["date", "amount"])
+      .limit(1)
+      .options({ splits: "grouped" }),
+  );
+  const tx = data.data[0];
+  if (!tx) return { found: false };
+
+  return {
+    found: true,
+    payeeName: payee.name,
+    date: tx.date,
+    amount: Number(tx.amount),
+  };
 }
 
 async function ensurePayee({ name }) {

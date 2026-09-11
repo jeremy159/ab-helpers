@@ -4,8 +4,8 @@ use crate::execution::{DryRun, Live, PlanExecute, Preview};
 use ab_helpers_domain::InterestPeriod;
 use ab_helpers_domain::{InterestSkip, LiveOutcome, Money};
 use actual::{
-    Account, ActualResult, AddTransactionResponse, ImportTransaction, LastTransaction,
-    SaveTransaction,
+    Account, ActualResult, AddTransactionResponse, ExistingTransaction, ImportTransaction,
+    LastTransaction, SaveTransaction,
 };
 use async_trait::async_trait;
 use chrono::NaiveDate;
@@ -17,6 +17,7 @@ struct FakeClient {
     last_tx: LastTransaction,
     balance: i64,
     payee_id: String,
+    existing_tx: Option<ExistingTransaction>,
     imported_tx: std::sync::Mutex<Option<ImportTransaction>>,
 }
 
@@ -36,6 +37,14 @@ impl actual::ActualReadRequests for FakeClient {
     }
     async fn get_account_note(&self, _id: &str) -> ActualResult<Option<String>> {
         Ok(self.note.clone())
+    }
+    async fn find_transaction(
+        &self,
+        _account_id: &str,
+        _date: NaiveDate,
+        _payee_name: &str,
+    ) -> ActualResult<Option<ExistingTransaction>> {
+        Ok(self.existing_tx.clone())
     }
 }
 
@@ -74,6 +83,7 @@ fn make_client(closed: bool) -> Arc<FakeClient> {
         },
         balance: -50000,
         payee_id: "payee-1".into(),
+        existing_tx: None,
         imported_tx: Default::default(),
     })
 }
@@ -90,7 +100,7 @@ fn kia_config() -> InterestConfig {
 
 #[tokio::test]
 async fn returns_account_closed_when_closed() {
-    let svc = InterestService::new(make_client(true), kia_config());
+    let svc = InterestService::new(make_client(true), kia_config(), false);
     let outcome = svc.run::<Live>().await.unwrap();
     assert!(matches!(
         outcome,
@@ -101,7 +111,7 @@ async fn returns_account_closed_when_closed() {
 #[tokio::test]
 async fn applies_interest_and_imports_transaction() {
     let client = make_client(false);
-    let svc = InterestService::new(client.clone(), kia_config());
+    let svc = InterestService::new(client.clone(), kia_config(), false);
     let outcome = svc.run::<Live>().await.unwrap();
 
     match outcome {
@@ -143,9 +153,10 @@ async fn falls_back_to_config_rate_when_note_has_no_interest_rate() {
         },
         balance: -50000,
         payee_id: "payee-1".into(),
+        existing_tx: None,
         imported_tx: Default::default(),
     });
-    let svc = InterestService::new(client.clone(), kia_config());
+    let svc = InterestService::new(client.clone(), kia_config(), false);
     let outcome = svc.run::<Live>().await.unwrap();
     assert!(matches!(outcome, LiveOutcome::Applied { .. }));
 
@@ -171,9 +182,10 @@ async fn falls_back_to_config_rate_when_account_has_no_note_at_all() {
         },
         balance: -50000,
         payee_id: "payee-1".into(),
+        existing_tx: None,
         imported_tx: Default::default(),
     });
-    let svc = InterestService::new(client.clone(), kia_config());
+    let svc = InterestService::new(client.clone(), kia_config(), false);
     let outcome = svc.run::<Live>().await.unwrap();
     assert!(matches!(outcome, LiveOutcome::Applied { .. }));
 
@@ -197,9 +209,10 @@ async fn returns_no_interest_when_zero() {
         },
         balance: 0,
         payee_id: "p".into(),
+        existing_tx: None,
         imported_tx: Default::default(),
     });
-    let svc = InterestService::new(client, kia_config());
+    let svc = InterestService::new(client, kia_config(), false);
     let outcome = svc.run::<Live>().await.unwrap();
     assert!(matches!(
         outcome,
@@ -210,7 +223,7 @@ async fn returns_no_interest_when_zero() {
 #[tokio::test]
 async fn dry_run_returns_would_apply_and_writes_nothing() {
     let client = make_client(false);
-    let svc = InterestService::new(Arc::clone(&client), kia_config());
+    let svc = InterestService::new(Arc::clone(&client), kia_config(), false);
     let outcome = svc.run::<DryRun>().await.unwrap();
     match outcome {
         Preview::WouldApply(plan) => {
@@ -223,4 +236,66 @@ async fn dry_run_returns_would_apply_and_writes_nothing() {
         client.imported_tx.lock().unwrap().is_none(),
         "dry-run must not write"
     );
+}
+
+#[tokio::test]
+async fn skips_when_transaction_already_exists_for_date_and_payee() {
+    let client = Arc::new(FakeClient {
+        accounts: vec![make_account("acc-1", false)],
+        note: Some("interestRate:0.0699".into()),
+        last_tx: LastTransaction {
+            date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
+            amount: 10000,
+        },
+        balance: -50000,
+        payee_id: "payee-1".into(),
+        existing_tx: Some(ExistingTransaction {
+            payee_name: "Loan Interest".into(),
+            date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
+            amount: -66,
+        }),
+        imported_tx: Default::default(),
+    });
+    let svc = InterestService::new(client.clone(), kia_config(), false);
+    let outcome = svc.run::<Live>().await.unwrap();
+    match outcome {
+        LiveOutcome::Skip(InterestSkip::AlreadyApplied {
+            payee_name,
+            date,
+            amount,
+        }) => {
+            assert_eq!(payee_name, "Loan Interest");
+            assert_eq!(date, NaiveDate::from_ymd_opt(2024, 5, 18).unwrap());
+            assert_eq!(amount, Money::from_cents(-66));
+        }
+        other => panic!("unexpected: {other:?}"),
+    }
+    assert!(
+        client.imported_tx.lock().unwrap().is_none(),
+        "must not import a duplicate transaction"
+    );
+}
+
+#[tokio::test]
+async fn force_bypasses_the_already_applied_check() {
+    let client = Arc::new(FakeClient {
+        accounts: vec![make_account("acc-1", false)],
+        note: Some("interestRate:0.0699".into()),
+        last_tx: LastTransaction {
+            date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
+            amount: 10000,
+        },
+        balance: -50000,
+        payee_id: "payee-1".into(),
+        existing_tx: Some(ExistingTransaction {
+            payee_name: "Loan Interest".into(),
+            date: NaiveDate::from_ymd_opt(2024, 5, 18).unwrap(),
+            amount: -66,
+        }),
+        imported_tx: Default::default(),
+    });
+    let svc = InterestService::new(client.clone(), kia_config(), true);
+    let outcome = svc.run::<Live>().await.unwrap();
+    assert!(matches!(outcome, LiveOutcome::Applied { .. }));
+    assert!(client.imported_tx.lock().unwrap().is_some());
 }

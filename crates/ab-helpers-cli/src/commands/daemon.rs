@@ -205,7 +205,7 @@ async fn run_interest(
     let outcome = settings
         .actual
         .with_session(move |client| async move {
-            let service = InterestService::new(client, config);
+            let service = InterestService::new(client, config, false);
             service.run::<Live>().await
         })
         .await;

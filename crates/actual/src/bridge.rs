@@ -83,6 +83,12 @@ pub enum BridgeRequest {
     EnsurePayee { name: String },
     #[serde(rename = "get-account-note", rename_all = "camelCase")]
     GetAccountNote { account_id: String },
+    #[serde(rename = "find-transaction", rename_all = "camelCase")]
+    FindTransaction {
+        account_id: String,
+        date: String,
+        payee_name: String,
+    },
     #[serde(rename = "add-transaction")]
     AddTransaction(SaveTransaction),
     #[serde(rename = "import-transaction")]
