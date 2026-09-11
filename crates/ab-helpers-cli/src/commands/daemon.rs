@@ -114,6 +114,26 @@ fn tick_was_missed(cron_5field: &str, last_run: DateTime<Utc>, tz: Tz) -> bool {
     next.is_some_and(|next| next < now)
 }
 
+/// Logs the next time a job matching `cron_6field` will fire, in a
+/// human-readable, timezone-aware format.
+fn log_next_run(cron_6field: &str, tz: Tz, kind: &str) {
+    match Schedule::from_str(cron_6field) {
+        Ok(schedule) => match schedule.upcoming(tz).next() {
+            Some(next_run) => {
+                tracing::info!(
+                    kind,
+                    next_run = %next_run.format("%Y-%m-%d %H:%M:%S %Z"),
+                    "next {kind} interest run scheduled"
+                );
+            }
+            None => tracing::warn!(kind, "could not compute next scheduled run"),
+        },
+        Err(err) => {
+            tracing::warn!(?err, expr = cron_6field, kind, "failed to parse cron expression")
+        }
+    }
+}
+
 pub async fn run(settings: Settings) -> Result<(), CliError> {
     run_inner(settings).await.map_err(CliError::Failure)
 }
@@ -164,6 +184,7 @@ async fn run_inner(settings: Settings) -> anyhow::Result<()> {
         );
         let label = kind.label();
         tracing::debug!(expr = %cron_expr, kind = label, "scheduling interest job");
+        log_next_run(&cron_expr, tz, label);
 
         let settings = settings.clone();
         let state = Arc::clone(&state);
