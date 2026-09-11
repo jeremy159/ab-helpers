@@ -18,14 +18,13 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["process", "io-util", "macros", "rt"] }
 tracing.workspace = true
-secrecy = { workspace = true }
+secrecy.workspace = true
 
 mockall = { workspace = true, optional = true }
 fake = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["macros", "rt", "process"] }
 mockall = { workspace = true }
 fake = { workspace = true }
 rand = { workspace = true }

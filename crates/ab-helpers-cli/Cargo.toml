@@ -1,10 +1,10 @@
 [package]
 name = "ab-helpers-cli"
 version.workspace = true
-authors.workspace = true
-edition.workspace = true
-license.workspace = true
 rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
 
 [[bin]]
 name = "abh"
@@ -19,7 +19,7 @@ anyhow.workspace = true
 tokio.workspace = true
 clap = { version = "4", features = ["derive"] }
 tracing.workspace = true
-tracing-subscriber = { workspace = true }
+tracing-subscriber.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 tokio-cron-scheduler.workspace = true
