@@ -34,6 +34,6 @@ payee_name   = "Loan Interest"
 round        = true
 
 [scheduler]
-kia_interest_cron      = "0 9 * * 4"
+kia_interest_cron      = "0 9 * * 5"
 mortgage_interest_cron = "0 9 18 * *"
 timezone               = "America/New_York"
