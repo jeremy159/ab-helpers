@@ -4,7 +4,7 @@ use crate::execution::{Live, PlanExecute, PlanOutcome, RunMode};
 use ab_helpers_domain::{InterestPlan, InterestSkip, LiveOutcome, Money};
 use std::sync::Arc;
 
-use super::{ActualClient, ActualReadClient, ActualWriteClient};
+use super::{ActualClient, ActualReadClient, ActualWriteClient, available_account_names};
 
 /// Live apply: writes the interest transaction to Actual via the write client.
 #[async_trait::async_trait]
@@ -97,7 +97,10 @@ impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
         let account = accounts
             .iter()
             .find(|a| a.id == ctx.config.account_id)
-            .ok_or_else(|| AppError::ActualAccountNotFound(ctx.config.account_id.clone()))?;
+            .ok_or_else(|| AppError::ActualAccountNotFound {
+                name: None,
+                available: available_account_names(&accounts),
+            })?;
 
         if account.closed {
             return Ok(PlanOutcome::Skip(InterestSkip::AccountClosed));

@@ -145,10 +145,32 @@ pub struct ActualSettings {
     pub bridge_script: String,
     pub kia: KiaSettings,
     pub mortgage: MortgageSettings,
+    #[serde(default)]
+    pub set_balance: SetBalanceSettings,
 }
 
 fn default_node_bin() -> String {
     "node".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SetBalanceSettings {
+    /// Default payee name for `abh set-balance` adjustment transactions.
+    /// Overridable per call with `--payee-name`.
+    #[serde(default = "default_set_balance_payee_name")]
+    pub payee_name: String,
+}
+
+impl Default for SetBalanceSettings {
+    fn default() -> Self {
+        Self {
+            payee_name: default_set_balance_payee_name(),
+        }
+    }
+}
+
+fn default_set_balance_payee_name() -> String {
+    "Balance Adjustment".to_string()
 }
 
 impl ActualSettings {

@@ -30,6 +30,8 @@ enum Commands {
 enum SettingsCommand {
     /// Reconcile an account balance to a target value.
     SetBalance(commands::set_balance::SetBalanceArgs),
+    /// List accounts known to Actual.
+    ListAccounts(commands::list_accounts::ListAccountsArgs),
     /// Apply weekly Kia loan interest.
     ApplyKiaInterest(commands::interest::InterestArgs),
     /// Apply monthly mortgage interest.
@@ -44,7 +46,10 @@ async fn main() -> ExitCode {
     init_tracing(default_filter_for(&args.command));
     match run(args).await {
         Ok(()) => ExitCode::SUCCESS,
-        Err(CliError::NotFound) => ExitCode::from(1),
+        Err(CliError::NotFound(message)) => {
+            eprintln!("{message}");
+            ExitCode::from(1)
+        }
         Err(CliError::Failure(err)) => {
             tracing::error!("{:#}", err);
             ExitCode::from(3)
@@ -83,6 +88,9 @@ async fn run(args: Cli) -> Result<(), CliError> {
 
             match cmd {
                 SettingsCommand::SetBalance(a) => commands::set_balance::run(settings, a).await,
+                SettingsCommand::ListAccounts(a) => {
+                    commands::list_accounts::run(settings, a).await
+                }
                 SettingsCommand::ApplyKiaInterest(a) => {
                     commands::interest::run(settings, a, commands::interest::InterestKind::Kia)
                         .await

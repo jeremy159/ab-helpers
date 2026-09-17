@@ -22,3 +22,8 @@ account_id = "your-kia-account-id"
 
 [actual.mortgage]
 account_id = "your-mortgage-account-id"
+
+[actual.set_balance]
+# Default payee name for `abh set-balance` adjustments; still overridable
+# per call with --payee-name.
+payee_name = "Balance Adjustment"

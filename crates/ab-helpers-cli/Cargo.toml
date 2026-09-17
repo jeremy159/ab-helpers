@@ -18,6 +18,7 @@ actual.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 clap = { version = "4", features = ["derive"] }
+inquire = "0.7"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 chrono.workspace = true

@@ -7,7 +7,10 @@ use chrono::NaiveDate;
 use crate::error::{ABHelpersResult, AppError};
 use crate::execution::{Live, PlanExecute, PlanOutcome, RunMode};
 
-use super::{ActualClient, ActualReadClient, ActualWriteClient};
+use super::{
+    AccountMatch, ActualClient, ActualReadClient, ActualWriteClient, available_account_names,
+    match_account,
+};
 
 #[derive(Debug, Clone, Default)]
 pub struct ReconcileOptions {
@@ -126,18 +129,16 @@ impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
     async fn plan(ctx: &ReconcilePlanCtx<R>) -> ABHelpersResult<PlanOutcome<ReconcileSkip, ReconcilePlan>> {
         let accounts = ctx.reader.list_accounts().await?;
 
-        let matches: Vec<&actual::Account> = accounts
-            .iter()
-            .filter(|a| !a.closed && a.name == ctx.account_name)
-            .collect();
-
-        let account = match matches.as_slice() {
-            [] => {
-                return Err(AppError::ActualAccountNotFound(ctx.account_name.clone()))
+        let account = match match_account(&accounts, &ctx.account_name) {
+            AccountMatch::Found(account) => account,
+            AccountMatch::NotFound => {
+                return Err(AppError::ActualAccountNotFound {
+                    name: Some(ctx.account_name.clone()),
+                    available: available_account_names(&accounts),
+                });
             }
-            [only] => *only,
-            many => {
-                let matches = many
+            AccountMatch::Ambiguous(candidates) => {
+                let matches = candidates
                     .iter()
                     .map(|a| format!("{} ({})", a.name, a.id))
                     .collect::<Vec<_>>();
@@ -399,7 +400,7 @@ mod tests {
             Default::default(),
         );
         let err = svc.run::<Live>().await.unwrap_err();
-        assert!(matches!(err, AppError::ActualAccountNotFound(_)));
+        assert!(matches!(err, AppError::ActualAccountNotFound { .. }));
     }
 
     #[tokio::test]

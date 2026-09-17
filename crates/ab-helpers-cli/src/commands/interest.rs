@@ -77,7 +77,7 @@ pub async fn run(
                         Ok(())
                     }
                     Preview::Skip(InterestSkip::NoInterest { balance, cutoff }) => {
-                        tracing::info!(balance = %balance, %cutoff, kind = label, "no {label} interest to apply (DRY-RUN)");
+                        tracing::info!(%balance, %cutoff, kind = label, "no {label} interest to apply (DRY-RUN)");
                         Ok(())
                     }
                     Preview::Skip(InterestSkip::AlreadyApplied { payee_name, date, amount }) => {
@@ -128,7 +128,7 @@ pub async fn run(
                     tracing::info!(kind = label, "{label} account is closed - skipping");
                 }
                 LiveOutcome::Skip(InterestSkip::NoInterest { balance, .. }) => {
-                    tracing::info!(balance = %balance, kind = label, "no {label} interest to apply");
+                    tracing::info!(%balance, kind = label, "no {label} interest to apply");
                 }
                 LiveOutcome::Skip(InterestSkip::AlreadyApplied { payee_name, date, amount }) => {
                     tracing::warn!(
@@ -149,9 +149,9 @@ pub async fn run(
                     transaction_id,
                 } => {
                     tracing::info!(
-                        balance = %balance,
-                        interest = %interest,
-                        new_balance = %new_balance,
+                        %balance,
+                        %interest,
+                        %new_balance,
                         %transaction_id,
                         kind = label,
                         "{label} interest applied"

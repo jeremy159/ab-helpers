@@ -37,6 +37,18 @@ impl Money {
             format!("{self}")
         }
     }
+
+    /// Inserts a space every three digits from the right, e.g. `43576` -> `"43 576"`.
+    fn group_thousands(n: u64) -> String {
+        let digits = n.to_string();
+        digits
+            .as_bytes()
+            .rchunks(3)
+            .rev()
+            .map(|chunk| std::str::from_utf8(chunk).expect("digits are ASCII"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
 }
 
 impl Add for Money {
@@ -127,6 +139,6 @@ impl fmt::Display for Money {
         let abs = cents.unsigned_abs();
         let dollars = abs / 100;
         let frac = abs % 100;
-        write!(f, "{sign}{dollars}.{frac:02}")
+        write!(f, "{sign}${}.{frac:02}", Money::group_thousands(dollars))
     }
 }

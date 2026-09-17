@@ -43,16 +43,22 @@ fn rejects_empty() {
 
 #[test]
 fn formats_positive() {
-    assert_eq!(Money::from_cents(1234).to_string(), "12.34");
+    assert_eq!(Money::from_cents(1234).to_string(), "$12.34");
 }
 
 #[test]
 fn formats_negative() {
-    assert_eq!(Money::from_cents(-505).to_string(), "-5.05");
+    assert_eq!(Money::from_cents(-505).to_string(), "-$5.05");
 }
 
 #[test]
 fn formats_padding_zero() {
-    assert_eq!(Money::from_cents(105).to_string(), "1.05");
-    assert_eq!(Money::from_cents(100).to_string(), "1.00");
+    assert_eq!(Money::from_cents(105).to_string(), "$1.05");
+    assert_eq!(Money::from_cents(100).to_string(), "$1.00");
+}
+
+#[test]
+fn formats_thousands_with_spaces() {
+    assert_eq!(Money::from_cents(4_357_678).to_string(), "$43 576.78");
+    assert_eq!(Money::from_cents(-4_357_678).to_string(), "-$43 576.78");
 }

@@ -5,3 +5,6 @@ pub mod routes;
 pub mod services;
 pub mod startup;
 pub mod telemetry;
+
+#[cfg(test)]
+mod tests;

@@ -233,13 +233,50 @@ async fn run_interest(
 
     match outcome {
         Ok(ab_helpers_domain::LiveOutcome::Skip(reason)) => {
-            tracing::info!(?reason, kind = label, "interest skipped");
+            match reason {
+                ab_helpers_domain::InterestSkip::AccountClosed => {
+                    tracing::info!(kind = label, "interest skipped: account closed");
+                }
+                ab_helpers_domain::InterestSkip::NoInterest { balance, cutoff } => {
+                    tracing::info!(
+                        %balance,
+                        %cutoff,
+                        kind = label,
+                        "interest skipped: no interest to apply"
+                    );
+                }
+                ab_helpers_domain::InterestSkip::AlreadyApplied {
+                    payee_name,
+                    date,
+                    amount,
+                } => {
+                    tracing::info!(
+                        %payee_name,
+                        %date,
+                        %amount,
+                        kind = label,
+                        "interest skipped: already applied"
+                    );
+                }
+            }
             let mut s = state.lock().await;
             s.set_last_run(kind, Utc::now());
             save_state(data_dir, &s);
         }
-        Ok(outcome) => {
-            tracing::info!(?outcome, kind = label, "interest applied");
+        Ok(ab_helpers_domain::LiveOutcome::Applied {
+            balance,
+            interest,
+            new_balance,
+            transaction_id,
+        }) => {
+            tracing::info!(
+                %balance,
+                %interest,
+                %new_balance,
+                %transaction_id,
+                kind = label,
+                "interest applied"
+            );
             let mut s = state.lock().await;
             s.set_last_run(kind, Utc::now());
             save_state(data_dir, &s);

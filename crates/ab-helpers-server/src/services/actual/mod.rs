@@ -1,8 +1,10 @@
+mod account_match;
 mod interest;
 mod reconcile;
 #[cfg(test)]
 mod tests;
 
+pub use account_match::*;
 pub use interest::*;
 pub use reconcile::*;
 

@@ -32,14 +32,25 @@ pub enum AppError {
     ResourceAlreadyExists,
     #[error("Error with Database interaction")]
     DbError(#[from] DbError),
-    #[error("Actual account `{0}` not found")]
-    ActualAccountNotFound(String),
+    #[error("Actual account{} not found.{}", name.as_deref().map(|n| format!(" `{n}`")).unwrap_or_default(), available_suffix(available))]
+    ActualAccountNotFound {
+        name: Option<String>,
+        available: Vec<String>,
+    },
     #[error("Multiple Actual accounts match `{name}`: {}", .matches.join(", "))]
     ActualAccountAmbiguous { name: String, matches: Vec<String> },
     #[error("Actual integration error: {0}")]
     Actual(#[from] actual::Error),
     #[error(transparent)]
     Unexpected(#[from] anyhow::Error),
+}
+
+fn available_suffix(available: &[String]) -> String {
+    if available.is_empty() {
+        String::new()
+    } else {
+        format!(" Available accounts: {}", available.join(", "))
+    }
 }
 
 impl std::fmt::Debug for AppError {
@@ -65,7 +76,7 @@ impl IntoResponse for AppError {
             AppError::ResourceAlreadyExists => {
                 (StatusCode::CONFLICT, "Resource already exists".to_owned())
             }
-            AppError::ActualAccountNotFound(_) => {
+            AppError::ActualAccountNotFound { .. } => {
                 (StatusCode::NOT_FOUND, "Account does not exist".to_owned())
             }
             AppError::ActualAccountAmbiguous { .. } => (
