@@ -1,5 +1,6 @@
 use super::error::CliError;
 use ab_helpers_server::config::Settings;
+use ab_helpers_server::services::actual::format_account_groups;
 use actual::ActualReadRequests;
 use clap::Args;
 
@@ -33,11 +34,13 @@ pub async fn run(settings: Settings, args: ListAccountsArgs) -> Result<(), CliEr
                 return Ok(());
             }
 
-            for account in &accounts {
-                tracing::trace!(account = %account.name, id = %account.id, closed = account.closed, "listing account");
-                let closed = if account.closed { " [closed]" } else { "" };
-                println!("  {} ({}){closed}", account.name, account.id);
-            }
+            println!(
+                "{}",
+                format_account_groups(&accounts, |a| {
+                    let closed = if a.closed { " [closed]" } else { "" };
+                    format!("{}{closed}", a.name)
+                })
+            );
 
             Ok(())
         })

@@ -3,6 +3,16 @@
 //! exact wording is worth locking down.
 
 use crate::error::AppError;
+use actual::Account;
+
+fn account(id: &str, name: &str) -> Account {
+    Account {
+        id: id.into(),
+        name: name.into(),
+        offbudget: false,
+        closed: false,
+    }
+}
 
 #[test]
 fn account_not_found_with_name_and_no_available_accounts() {
@@ -17,7 +27,7 @@ fn account_not_found_with_name_and_no_available_accounts() {
 fn account_not_found_with_name_and_available_accounts() {
     let err = AppError::ActualAccountNotFound {
         name: Some("Chekcing".to_string()),
-        available: vec!["Checking".to_string(), "Savings".to_string()],
+        available: vec![account("a-1", "Checking"), account("a-2", "Savings")],
     };
     assert_eq!(
         err.to_string(),
@@ -32,7 +42,7 @@ fn account_not_found_without_a_name_is_still_readable() {
     // echo back, so the message must still read sensibly without one.
     let err = AppError::ActualAccountNotFound {
         name: None,
-        available: vec!["Checking".to_string()],
+        available: vec![account("a-1", "Checking")],
     };
     assert_eq!(
         err.to_string(),
@@ -53,7 +63,7 @@ fn account_not_found_without_name_or_available_accounts() {
 fn account_ambiguous_lists_all_matches() {
     let err = AppError::ActualAccountAmbiguous {
         name: "Checking".to_string(),
-        matches: vec!["Checking (a-1)".to_string(), "checking (a-2)".to_string()],
+        matches: vec![account("a-1", "Checking"), account("a-2", "checking")],
     };
     assert_eq!(
         err.to_string(),

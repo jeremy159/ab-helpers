@@ -10,6 +10,13 @@ fn account(id: &str, name: &str, closed: bool) -> Account {
     }
 }
 
+fn offbudget_account(id: &str, name: &str) -> Account {
+    Account {
+        offbudget: true,
+        ..account(id, name, false)
+    }
+}
+
 #[test]
 fn matches_case_insensitively_and_trims_whitespace() {
     let accounts = vec![account("a-1", "Checking", false)];
@@ -57,4 +64,25 @@ fn reports_not_found_when_no_accounts_match() {
         match_account(&accounts, "Checking"),
         AccountMatch::NotFound
     ));
+}
+
+#[test]
+fn splits_accounts_by_budget_status_and_sorts_each_group_by_name() {
+    let accounts = vec![
+        account("a-1", "Savings", false),
+        offbudget_account("a-2", "Valeur Kia"),
+        account("a-3", "Checking", false),
+        offbudget_account("a-4", "Kia Loan"),
+    ];
+
+    let (on_budget, off_budget) = split_by_budget(&accounts);
+
+    assert_eq!(
+        on_budget.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        ["Checking", "Savings"]
+    );
+    assert_eq!(
+        off_budget.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        ["Kia Loan", "Valeur Kia"]
+    );
 }

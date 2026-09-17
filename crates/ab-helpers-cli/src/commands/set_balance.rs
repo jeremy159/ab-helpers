@@ -7,7 +7,8 @@ use ab_helpers_server::config::Settings;
 use ab_helpers_server::error::AppError;
 use ab_helpers_server::execution::{DryRun, Live, PlanExecute, Preview};
 use ab_helpers_server::services::actual::{
-    AccountMatch, ReconcileOptions, ReconcileService, available_account_names, match_account,
+    AccountMatch, ReconcileOptions, ReconcileService, available_accounts, match_account,
+    split_by_budget,
 };
 use actual::{Account, ActualReadRequests};
 use clap::Args;
@@ -124,14 +125,17 @@ fn resolve_account_name(accounts: &[Account], query: &str) -> Result<String, Cli
             Ok(account.name)
         }
         AccountMatch::NotFound => {
-            tracing::warn!(query, "account not found; offering interactive picker if possible");
+            tracing::warn!(
+                query,
+                "account not found; offering interactive picker if possible"
+            );
 
             let opened_accounts: Vec<Account> =
                 accounts.iter().filter(|a| !a.closed).cloned().collect();
 
             let fallback = AppError::ActualAccountNotFound {
                 name: Some(query.to_string()),
-                available: available_account_names(&opened_accounts),
+                available: available_accounts(&opened_accounts),
             };
 
             pick_account_interactively(opened_accounts, fallback)
@@ -145,7 +149,7 @@ fn resolve_account_name(accounts: &[Account], query: &str) -> Result<String, Cli
 
             let fallback = AppError::ActualAccountAmbiguous {
                 name: query.to_string(),
-                matches: available_account_names(&candidates),
+                matches: candidates.clone(),
             };
 
             pick_account_interactively(candidates, fallback)
@@ -166,15 +170,20 @@ fn pick_account_interactively(
         return Err(map_app_error(fallback));
     }
 
-    let labels: Vec<String> = options.iter().map(|a| &a.name).cloned().collect();
+    let (on_budget, off_budget) = split_by_budget(&options);
+    let ordered: Vec<&Account> = on_budget.into_iter().chain(off_budget).collect();
+    let labels: Vec<String> = ordered.iter().map(|a| picker_label(a)).collect();
 
-    tracing::debug!(options = labels.len(), "prompting interactive account picker");
+    tracing::debug!(
+        options = labels.len(),
+        "prompting interactive account picker"
+    );
 
     match inquire::Select::new("Select account:", labels).prompt() {
         Ok(label) => {
             let account = options
                 .into_iter()
-                .find(|a| a.name == label)
+                .find(|a| picker_label(a) == label)
                 .expect("selected label must be one of the presented options");
             tracing::info!(account = %account.name, "account selected interactively");
             Ok(account.name)
@@ -183,6 +192,14 @@ fn pick_account_interactively(
             tracing::warn!(error = %err, "interactive account selection cancelled or failed");
             Err(map_app_error(fallback))
         }
+    }
+}
+
+fn picker_label(account: &Account) -> String {
+    if account.offbudget {
+        format!("[off budget] {}", account.name)
+    } else {
+        account.name.clone()
     }
 }
 

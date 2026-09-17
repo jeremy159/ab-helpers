@@ -5,6 +5,23 @@
 
 use crate::commands::error::{CliError, map_app_error, map_app_error_labelled};
 use ab_helpers_server::error::AppError;
+use actual::Account;
+
+fn account(id: &str, name: &str) -> Account {
+    Account {
+        id: id.into(),
+        name: name.into(),
+        offbudget: false,
+        closed: false,
+    }
+}
+
+fn offbudget_account(id: &str, name: &str) -> Account {
+    Account {
+        offbudget: true,
+        ..account(id, name)
+    }
+}
 
 fn message(err: CliError) -> String {
     match err {
@@ -17,11 +34,11 @@ fn message(err: CliError) -> String {
 fn not_found_by_name_lists_available_accounts() {
     let err = AppError::ActualAccountNotFound {
         name: Some("Chekcing".to_string()),
-        available: vec!["Checking".to_string(), "Savings".to_string()],
+        available: vec![account("a-1", "Checking"), account("a-2", "Savings")],
     };
     assert_eq!(
         message(map_app_error(err)),
-        "Account \"Chekcing\" not found.\nAvailable accounts:\n  Checking\n  Savings"
+        "Account \"Chekcing\" not found.\nAvailable accounts:\nOn budget:\n  Checking\n  Savings"
     );
 }
 
@@ -35,14 +52,26 @@ fn not_found_by_name_with_no_available_accounts() {
 }
 
 #[test]
-fn ambiguous_lists_all_candidates() {
-    let err = AppError::ActualAccountAmbiguous {
-        name: "Checking".to_string(),
-        matches: vec!["Checking (a-1)".to_string(), "checking (a-2)".to_string()],
+fn not_found_groups_available_accounts_by_budget() {
+    let err = AppError::ActualAccountNotFound {
+        name: Some("Chekcing".to_string()),
+        available: vec![account("a-1", "Checking"), offbudget_account("a-2", "Kia Loan")],
     };
     assert_eq!(
         message(map_app_error(err)),
-        "\"Checking\" matches more than one account:\n  Checking (a-1)\n  checking (a-2)"
+        "Account \"Chekcing\" not found.\nAvailable accounts:\nOn budget:\n  Checking\nOff budget:\n  Kia Loan"
+    );
+}
+
+#[test]
+fn ambiguous_lists_all_candidates() {
+    let err = AppError::ActualAccountAmbiguous {
+        name: "Checking".to_string(),
+        matches: vec![account("a-1", "Checking"), account("a-2", "checking")],
+    };
+    assert_eq!(
+        message(map_app_error(err)),
+        "\"Checking\" matches more than one account:\nOn budget:\n  Checking\n  checking"
     );
 }
 
@@ -59,11 +88,11 @@ fn labelled_not_found_without_a_name_points_at_the_config_key() {
     // the config key instead of the meaningless raw id.
     let err = AppError::ActualAccountNotFound {
         name: None,
-        available: vec!["Checking".to_string()],
+        available: vec![account("a-1", "Checking")],
     };
     assert_eq!(
         message(map_app_error_labelled(err, "kia")),
-        "Configured `kia` account (`actual.kia.account_id`) not found.\nAvailable accounts:\n  Checking"
+        "Configured `kia` account (`actual.kia.account_id`) not found.\nAvailable accounts:\nOn budget:\n  Checking"
     );
 }
 
@@ -83,10 +112,10 @@ fn labelled_not_found_with_a_name_still_uses_the_name() {
 fn labelled_ambiguous_includes_the_kind_in_the_log_but_not_the_message() {
     let err = AppError::ActualAccountAmbiguous {
         name: "Checking".to_string(),
-        matches: vec!["Checking (a-1)".to_string(), "Checking (a-2)".to_string()],
+        matches: vec![account("a-1", "Checking"), account("a-2", "Checking")],
     };
     assert_eq!(
         message(map_app_error_labelled(err, "mortgage")),
-        "\"Checking\" matches more than one account:\n  Checking (a-1)\n  Checking (a-2)"
+        "\"Checking\" matches more than one account:\nOn budget:\n  Checking\n  Checking"
     );
 }

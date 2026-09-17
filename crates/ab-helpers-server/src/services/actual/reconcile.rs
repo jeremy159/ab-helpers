@@ -8,7 +8,7 @@ use crate::error::{ABHelpersResult, AppError};
 use crate::execution::{Live, PlanExecute, PlanOutcome, RunMode};
 
 use super::{
-    AccountMatch, ActualClient, ActualReadClient, ActualWriteClient, available_account_names,
+    AccountMatch, ActualClient, ActualReadClient, ActualWriteClient, available_accounts,
     match_account,
 };
 
@@ -134,17 +134,13 @@ impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
             AccountMatch::NotFound => {
                 return Err(AppError::ActualAccountNotFound {
                     name: Some(ctx.account_name.clone()),
-                    available: available_account_names(&accounts),
+                    available: available_accounts(&accounts),
                 });
             }
             AccountMatch::Ambiguous(candidates) => {
-                let matches = candidates
-                    .iter()
-                    .map(|a| format!("{} ({})", a.name, a.id))
-                    .collect::<Vec<_>>();
                 return Err(AppError::ActualAccountAmbiguous {
                     name: ctx.account_name.clone(),
-                    matches,
+                    matches: candidates,
                 });
             }
         };

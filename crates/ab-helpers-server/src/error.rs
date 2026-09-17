@@ -1,4 +1,5 @@
 use ab_helpers_domain::db::DbError;
+use actual::Account;
 use axum::{
     extract::{FromRequest, rejection::JsonRejection},
     http::StatusCode,
@@ -35,22 +36,31 @@ pub enum AppError {
     #[error("Actual account{} not found.{}", name.as_deref().map(|n| format!(" `{n}`")).unwrap_or_default(), available_suffix(available))]
     ActualAccountNotFound {
         name: Option<String>,
-        available: Vec<String>,
+        available: Vec<Account>,
     },
-    #[error("Multiple Actual accounts match `{name}`: {}", .matches.join(", "))]
-    ActualAccountAmbiguous { name: String, matches: Vec<String> },
+    #[error("Multiple Actual accounts match `{name}`: {}", format_matches(matches))]
+    ActualAccountAmbiguous { name: String, matches: Vec<Account> },
     #[error("Actual integration error: {0}")]
     Actual(#[from] actual::Error),
     #[error(transparent)]
     Unexpected(#[from] anyhow::Error),
 }
 
-fn available_suffix(available: &[String]) -> String {
+fn available_suffix(available: &[Account]) -> String {
     if available.is_empty() {
         String::new()
     } else {
-        format!(" Available accounts: {}", available.join(", "))
+        let names: Vec<&str> = available.iter().map(|a| a.name.as_str()).collect();
+        format!(" Available accounts: {}", names.join(", "))
     }
+}
+
+fn format_matches(matches: &[Account]) -> String {
+    matches
+        .iter()
+        .map(|a| format!("{} ({})", a.name, a.id))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl std::fmt::Debug for AppError {
