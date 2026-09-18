@@ -1,4 +1,3 @@
-use chrono::Months;
 use chrono::NaiveDate;
 
 use super::money::Money;
@@ -7,7 +6,10 @@ use super::money::Money;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InterestSkip {
     AccountClosed,
-    NoInterest { balance: Money, cutoff: NaiveDate },
+    NoInterest {
+        balance: Money,
+        cutoff: NaiveDate,
+    },
     AlreadyApplied {
         payee_name: String,
         date: NaiveDate,
@@ -36,12 +38,9 @@ pub enum InterestPeriod {
 
 impl InterestPeriod {
     /// Returns the cutoff date: the point-in-time balance snapshot used as the interest base.
-    /// Weekly: the day before the last transaction. Monthly: see [`mortgage_cutoff`].
+    /// the day before the last transaction.
     pub fn cutoff_for(&self, last_tx_date: NaiveDate) -> NaiveDate {
-        match self {
-            InterestPeriod::Weekly => last_tx_date - chrono::Duration::days(1),
-            InterestPeriod::Monthly => mortgage_cutoff(last_tx_date),
-        }
+        last_tx_date - chrono::Duration::days(1)
     }
 
     /// French period label used in interest notes.
@@ -114,16 +113,6 @@ pub fn apply_bank_payment(
         principal: Money::from_cents(principal_abs),
         new_balance: Money::from_cents(new_balance_cents),
     }
-}
-
-/// Cutoff date for monthly mortgage interest: one month and one day before the last transaction.
-/// End-of-month dates clamp to the last day of the target month (e.g. Mar 31 → Feb 28/29 → Feb 27/28).
-pub fn mortgage_cutoff(last_tx_date: NaiveDate) -> NaiveDate {
-    last_tx_date
-        .checked_sub_months(Months::new(1))
-        .expect("transaction date is too close to NaiveDate::MIN")
-        .pred_opt()
-        .expect("transaction date is too close to NaiveDate::MIN")
 }
 
 #[derive(Debug)]

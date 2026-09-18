@@ -1,6 +1,6 @@
 use chrono::NaiveDate;
 
-use crate::{Money, apply_bank_payment, format_percent, mortgage_cutoff, parse_interest_rate};
+use crate::{InterestPeriod, Money, apply_bank_payment, format_percent, parse_interest_rate};
 
 #[test]
 fn interest_rounds_when_round_true() {
@@ -66,45 +66,32 @@ fn zero_interest_when_zero_balance() {
     assert_eq!(r.new_balance, Money::ZERO);
 }
 
-// mortgage_cutoff tests — cutoff = last_tx_date - 1 month - 1 day.
+// InterestPeriod::cutoff_for — cutoff = last_tx_date - 1 day, same for both periods.
 
 #[test]
-fn mortgage_cutoff_typical() {
-    // Mid-month: straightforward subtraction
+fn cutoff_for_weekly_is_one_day_before() {
     let d = NaiveDate::from_ymd_opt(2024, 5, 18).unwrap();
     assert_eq!(
-        mortgage_cutoff(d),
-        NaiveDate::from_ymd_opt(2024, 4, 17).unwrap()
+        InterestPeriod::Weekly.cutoff_for(d),
+        NaiveDate::from_ymd_opt(2024, 5, 17).unwrap()
     );
 }
 
 #[test]
-fn mortgage_cutoff_january_crosses_year() {
-    // January: goes back to December of the previous year
-    let d = NaiveDate::from_ymd_opt(2024, 1, 15).unwrap();
+fn cutoff_for_monthly_is_one_day_before() {
+    let d = NaiveDate::from_ymd_opt(2024, 5, 18).unwrap();
     assert_eq!(
-        mortgage_cutoff(d),
-        NaiveDate::from_ymd_opt(2023, 12, 14).unwrap()
+        InterestPeriod::Monthly.cutoff_for(d),
+        NaiveDate::from_ymd_opt(2024, 5, 17).unwrap()
     );
 }
 
 #[test]
-fn mortgage_cutoff_end_of_march_leap_year() {
-    // Mar 31 - 1 month clamps to Feb 29 (leap year), then -1 day = Feb 28
-    let d = NaiveDate::from_ymd_opt(2024, 3, 31).unwrap();
+fn cutoff_for_monthly_crosses_month_boundary() {
+    let d = NaiveDate::from_ymd_opt(2024, 5, 1).unwrap();
     assert_eq!(
-        mortgage_cutoff(d),
-        NaiveDate::from_ymd_opt(2024, 2, 28).unwrap()
-    );
-}
-
-#[test]
-fn mortgage_cutoff_end_of_march_non_leap_year() {
-    // Mar 31 - 1 month clamps to Feb 28 (non-leap year), then -1 day = Feb 27
-    let d = NaiveDate::from_ymd_opt(2023, 3, 31).unwrap();
-    assert_eq!(
-        mortgage_cutoff(d),
-        NaiveDate::from_ymd_opt(2023, 2, 27).unwrap()
+        InterestPeriod::Monthly.cutoff_for(d),
+        NaiveDate::from_ymd_opt(2024, 4, 30).unwrap()
     );
 }
 
