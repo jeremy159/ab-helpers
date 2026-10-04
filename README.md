@@ -8,6 +8,7 @@ Automation helpers for [Actual Budget](https://actualbudget.org/): applies loan 
 abh set-balance <account> <amount> [--dry-run]   # Reconcile an account to a target balance
 abh apply-kia-interest       [--dry-run]          # Apply weekly Kia loan interest
 abh apply-mortgage-interest  [--dry-run]          # Apply monthly mortgage interest
+abh budget-summary           [--month YYYY-MM]    # Income split / common vs. individual expense summary
 abh daemon                                        # Run the cron scheduler (production entry point)
 ```
 

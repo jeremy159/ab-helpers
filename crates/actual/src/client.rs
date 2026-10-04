@@ -6,9 +6,11 @@ use crate::Error;
 use crate::bridge::{BridgeInvoker, BridgeRequest};
 use crate::error::ActualResult;
 use crate::types::{
-    Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, EnsurePayeeResponse,
-    ExistingTransaction, FindTransactionResponse, ImportTransaction, ImportTransactionRequest,
-    LastTransaction, LastTransactionResponse, ListAccountsResponse, SaveTransaction,
+    Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, BudgetMonthResponse,
+    CategoryGroup, CategoryProjectionResponse, EnsurePayeeResponse, ExistingTransaction,
+    FindTransactionResponse, ImportTransaction, ImportTransactionRequest, LastTransaction,
+    LastTransactionResponse, ListAccountsResponse, Payee, PayeeTotal, PayeeTotalsResponse,
+    PayeesResponse, SaveTransaction, Schedule, SchedulesResponse,
 };
 
 /// High-level Rust client.
@@ -43,6 +45,28 @@ pub trait ActualReadRequests: Send + Sync {
         date: chrono::NaiveDate,
         payee_name: &str,
     ) -> ActualResult<Option<ExistingTransaction>>;
+    /// Category groups/categories for `month` (`"YYYY-MM"`), including each
+    /// category's stored `budgeted` amount.
+    async fn get_budget_month(&self, month: &str) -> ActualResult<Vec<CategoryGroup>>;
+    async fn get_payees(&self) -> ActualResult<Vec<Payee>>;
+    async fn get_schedules(&self) -> ActualResult<Vec<Schedule>>;
+    /// Sums transaction amounts by payee, across all accounts, within
+    /// `[start_date, end_date]` (`"YYYY-MM-DD"`, inclusive).
+    async fn get_payee_totals(
+        &self,
+        payee_ids: &[String],
+        start_date: chrono::NaiveDate,
+        end_date: chrono::NaiveDate,
+    ) -> ActualResult<Vec<PayeeTotal>>;
+    /// The projected `budgeted` amount for `category_id`/`month`, computed
+    /// from its Budget Automation goal without writing anything. `None` if
+    /// the category has no goal defined - callers should fall back to
+    /// [`ActualReadRequests::get_budget_month`]'s `budgeted` in that case.
+    async fn get_category_projection(
+        &self,
+        category_id: &str,
+        month: &str,
+    ) -> ActualResult<Option<i64>>;
 }
 
 /// Write operations: creating payees and posting transactions.
@@ -57,7 +81,9 @@ pub trait ActualWriteRequests: Send + Sync {
 impl ActualReadRequests for Client {
     async fn list_accounts(&self) -> ActualResult<Vec<Account>> {
         let value = self.invoker.invoke(BridgeRequest::ListAccounts).await?;
+
         let resp: ListAccountsResponse = serde_json::from_value(value)?;
+
         Ok(resp.accounts)
     }
 
@@ -68,7 +94,9 @@ impl ActualReadRequests for Client {
                 account_id: account_id.to_string(),
             })
             .await?;
+
         let resp: BalanceResponse = serde_json::from_value(value)?;
+
         Ok(resp.balance)
     }
 
@@ -79,7 +107,9 @@ impl ActualReadRequests for Client {
                 account_id: account_id.to_string(),
             })
             .await?;
+
         let resp: LastTransactionResponse = serde_json::from_value(value)?;
+
         Ok(LastTransaction {
             date: resp.date,
             amount: resp.amount,
@@ -94,7 +124,9 @@ impl ActualReadRequests for Client {
                 date: date.to_string(),
             })
             .await?;
+
         let resp: BalanceResponse = serde_json::from_value(value)?;
+
         Ok(resp.balance)
     }
 
@@ -105,7 +137,9 @@ impl ActualReadRequests for Client {
                 account_id: account_id.to_string(),
             })
             .await?;
+
         let resp: AccountNoteResponse = serde_json::from_value(value)?;
+
         Ok(resp.note)
     }
 
@@ -123,10 +157,13 @@ impl ActualReadRequests for Client {
                 payee_name: payee_name.to_string(),
             })
             .await?;
+
         let resp: FindTransactionResponse = serde_json::from_value(value)?;
+
         if !resp.found {
             return Ok(None);
         }
+
         Ok(Some(ExistingTransaction {
             payee_name: resp.payee_name.ok_or_else(|| {
                 Error::BridgeProtocol(
@@ -143,6 +180,73 @@ impl ActualReadRequests for Client {
             })?,
         }))
     }
+
+    async fn get_budget_month(&self, month: &str) -> ActualResult<Vec<CategoryGroup>> {
+        let value = self
+            .invoker
+            .invoke(BridgeRequest::GetBudgetMonth {
+                month: month.to_string(),
+            })
+            .await?;
+
+        let resp: BudgetMonthResponse = serde_json::from_value(value)?;
+
+        Ok(resp.category_groups)
+    }
+
+    async fn get_payees(&self) -> ActualResult<Vec<Payee>> {
+        let value = self.invoker.invoke(BridgeRequest::GetPayees).await?;
+
+        let resp: PayeesResponse = serde_json::from_value(value)?;
+
+        Ok(resp.payees)
+    }
+
+    async fn get_schedules(&self) -> ActualResult<Vec<Schedule>> {
+        let value = self.invoker.invoke(BridgeRequest::GetSchedules).await?;
+
+        let resp: SchedulesResponse = serde_json::from_value(value)?;
+
+        Ok(resp.schedules)
+    }
+
+    async fn get_payee_totals(
+        &self,
+        payee_ids: &[String],
+        start_date: chrono::NaiveDate,
+        end_date: chrono::NaiveDate,
+    ) -> ActualResult<Vec<PayeeTotal>> {
+        let value = self
+            .invoker
+            .invoke(BridgeRequest::GetPayeeTotals {
+                payee_ids: payee_ids.to_vec(),
+                start_date: start_date.to_string(),
+                end_date: end_date.to_string(),
+            })
+            .await?;
+
+        let resp: PayeeTotalsResponse = serde_json::from_value(value)?;
+
+        Ok(resp.totals)
+    }
+
+    async fn get_category_projection(
+        &self,
+        category_id: &str,
+        month: &str,
+    ) -> ActualResult<Option<i64>> {
+        let value = self
+            .invoker
+            .invoke(BridgeRequest::GetCategoryProjection {
+                category_id: category_id.to_string(),
+                month: month.to_string(),
+            })
+            .await?;
+
+        let resp: CategoryProjectionResponse = serde_json::from_value(value)?;
+
+        Ok(resp.budgeted)
+    }
 }
 
 #[async_trait]
@@ -154,7 +258,9 @@ impl ActualWriteRequests for Client {
                 name: name.to_string(),
             })
             .await?;
+
         let resp: EnsurePayeeResponse = serde_json::from_value(value)?;
+
         Ok(resp.id)
     }
 
@@ -163,7 +269,9 @@ impl ActualWriteRequests for Client {
             .invoker
             .invoke(BridgeRequest::AddTransaction(tx))
             .await?;
+
         let resp: AddTransactionResponse = serde_json::from_value(value)?;
+
         Ok(resp)
     }
 
@@ -176,11 +284,14 @@ impl ActualWriteRequests for Client {
             notes: tx.notes,
             cleared: tx.cleared,
         };
+
         let value = self
             .invoker
             .invoke(BridgeRequest::ImportTransaction(req))
             .await?;
+
         let resp: AddTransactionResponse = serde_json::from_value(value)?;
+
         Ok(resp.id)
     }
 }
@@ -206,6 +317,20 @@ mockall::mock! {
             date: chrono::NaiveDate,
             payee_name: &str,
         ) -> ActualResult<Option<ExistingTransaction>>;
+        async fn get_budget_month(&self, month: &str) -> ActualResult<Vec<CategoryGroup>>;
+        async fn get_payees(&self) -> ActualResult<Vec<Payee>>;
+        async fn get_schedules(&self) -> ActualResult<Vec<Schedule>>;
+        async fn get_payee_totals(
+            &self,
+            payee_ids: &[String],
+            start_date: chrono::NaiveDate,
+            end_date: chrono::NaiveDate,
+        ) -> ActualResult<Vec<PayeeTotal>>;
+        async fn get_category_projection(
+            &self,
+            category_id: &str,
+            month: &str,
+        ) -> ActualResult<Option<i64>>;
     }
 }
 

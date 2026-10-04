@@ -46,6 +46,30 @@ impl actual::ActualReadRequests for FakeClient {
     ) -> ActualResult<Option<ExistingTransaction>> {
         Ok(self.existing_tx.clone())
     }
+    async fn get_budget_month(&self, _month: &str) -> ActualResult<Vec<actual::CategoryGroup>> {
+        unimplemented!("not needed for interest tests")
+    }
+    async fn get_payees(&self) -> ActualResult<Vec<actual::Payee>> {
+        unimplemented!("not needed for interest tests")
+    }
+    async fn get_schedules(&self) -> ActualResult<Vec<actual::Schedule>> {
+        unimplemented!("not needed for interest tests")
+    }
+    async fn get_payee_totals(
+        &self,
+        _payee_ids: &[String],
+        _start_date: NaiveDate,
+        _end_date: NaiveDate,
+    ) -> ActualResult<Vec<actual::PayeeTotal>> {
+        unimplemented!("not needed for interest tests")
+    }
+    async fn get_category_projection(
+        &self,
+        _category_id: &str,
+        _month: &str,
+    ) -> ActualResult<Option<i64>> {
+        unimplemented!("not needed for interest tests")
+    }
 }
 
 #[async_trait]

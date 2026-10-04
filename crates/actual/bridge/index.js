@@ -146,6 +146,11 @@ const OPERATIONS = {
   "import-transaction": importTransaction,
   "get-account-note": getAccountNote,
   "find-transaction": findTransaction,
+  "get-budget-month": getBudgetMonth,
+  "get-payees": getPayees,
+  "get-schedules": getSchedules,
+  "get-payee-totals": getPayeeTotals,
+  "get-category-projection": getCategoryProjection,
 };
 
 const OPERATION_TIMEOUT_MS = {
@@ -364,6 +369,12 @@ async function runOpen() {
   }
 }
 
+// The object `api.init()` resolves to. Exposes `.send(name, args)`,
+// which can dispatch *internal* (non-typed-public-API) handlers by name.
+// This is an undocumented escape hatch: it may
+// break across @actual-app/api upgrades.
+let internalApi = null;
+
 async function openBudget() {
   const serverURL = mustEnvOrThrow("ACTUAL_SERVER_URL");
   const password = mustEnvOrThrow("ACTUAL_PASSWORD");
@@ -373,7 +384,12 @@ async function openBudget() {
 
   fs.mkdirSync(dataDir, { recursive: true });
 
-  await api.init({ dataDir, serverURL, password, verbose: false });
+  internalApi = await api.init({
+    dataDir,
+    serverURL,
+    password,
+    verbose: false,
+  });
   if (e2ePassword) {
     await api.downloadBudget(syncId, { password: e2ePassword });
   } else {
@@ -434,7 +450,12 @@ async function main() {
 
   fs.mkdirSync(dataDir, { recursive: true });
 
-  await api.init({ dataDir, serverURL, password, verbose: false });
+  internalApi = await api.init({
+    dataDir,
+    serverURL,
+    password,
+    verbose: false,
+  });
   try {
     if (e2ePassword) {
       await api.downloadBudget(syncId, { password: e2ePassword });
@@ -472,6 +493,21 @@ async function main() {
         break;
       case "find-transaction":
         result = await findTransaction(args);
+        break;
+      case "get-budget-month":
+        result = await getBudgetMonth(args);
+        break;
+      case "get-payees":
+        result = await getPayees(args);
+        break;
+      case "get-schedules":
+        result = await getSchedules(args);
+        break;
+      case "get-payee-totals":
+        result = await getPayeeTotals(args);
+        break;
+      case "get-category-projection":
+        result = await getCategoryProjection(args);
         break;
       default:
         emitError("unknown-subcommand", `unknown subcommand: ${subcommand}`);
@@ -642,6 +678,121 @@ async function findTransaction({ accountId, date, payeeName }) {
     date: tx.date,
     amount: Number(tx.amount),
   };
+}
+
+async function getBudgetMonth({ month }) {
+  if (!month) throwApi("missing-month", "month is required");
+  const result = await api.getBudgetMonth(month);
+  const groups = (result.categoryGroups || []).map((g) => ({
+    id: g.id,
+    name: g.name,
+    isIncome: !!g.is_income,
+    hidden: !!g.hidden,
+    categories: (g.categories || []).map((c) => ({
+      id: c.id,
+      name: c.name,
+      isIncome: !!c.is_income,
+      hidden: !!c.hidden,
+      budgeted: c.budgeted != null ? Number(c.budgeted) : null,
+    })),
+  }));
+
+  return { month: result.month, categoryGroups: groups };
+}
+
+async function getPayees() {
+  const payees = await api.getPayees();
+
+  return {
+    payees: payees.map((p) => ({ id: String(p.id), name: p.name })),
+  };
+}
+
+async function getSchedules() {
+  const schedules = await api.getSchedules();
+
+  return {
+    schedules: schedules.map((s) => ({
+      id: s.id,
+      name: s.name || null,
+      payeeId: s.payee ? String(s.payee) : null,
+      accountId: s.account ? String(s.account) : null,
+      amount: s.amount,
+      amountOp: s.amountOp,
+      date: s.date,
+      nextDate: s.next_date || null,
+      completed: !!s.completed,
+      postsTransaction: !!s.posts_transaction,
+    })),
+  };
+}
+
+async function getPayeeTotals({ payeeIds, startDate, endDate }) {
+  if (!Array.isArray(payeeIds) || payeeIds.length === 0) {
+    throwApi("missing-payee-ids", "payeeIds must be a non-empty array");
+  }
+
+  if (!startDate || !endDate) {
+    throwApi("missing-date-range", "startDate and endDate are required");
+  }
+
+  const { data } = await api.aqlQuery(
+    api
+      .q("transactions")
+      .filter({
+        payee: { $oneof: payeeIds },
+        date: { $gte: startDate, $lte: endDate },
+      })
+      .groupBy("payee")
+      .select(["payee", { total: { $sum: "$amount" } }])
+      .options({ splits: "grouped" }),
+  );
+
+  return {
+    totals: data.map((row) => ({
+      payeeId: String(row.payee),
+      total: Number(row.total),
+    })),
+  };
+}
+
+async function getCategoryProjection({ categoryId, month }) {
+  if (!categoryId) throwApi("missing-category-id", "categoryId is required");
+  if (!month) throwApi("missing-month", "month is required");
+
+  const { data } = await api.aqlQuery(
+    api.q("categories").filter({ id: categoryId }).select(["id", "goal_def"]),
+  );
+
+  const goalDefRaw = data[0] && data[0].goal_def;
+  if (!goalDefRaw) {
+    return { budgeted: null };
+  }
+
+  let templates;
+  try {
+    templates = JSON.parse(goalDefRaw);
+  } catch (err) {
+    throwApi(
+      "bad-goal-def",
+      `category ${categoryId} has an unparseable goal_def: ${err.message}`,
+    );
+  }
+
+  if (!internalApi) {
+    throwApi(
+      "internal-api-unavailable",
+      "bridge internal API handle is not available (api.init() returned nothing usable)",
+    );
+  }
+
+  const result = await internalApi.send("budget/dry-run-category-template", {
+    month,
+    categoryId,
+    templates,
+  });
+
+  return { budgeted: Number(result.budgeted) };
 }
 
 async function ensurePayee({ name }) {

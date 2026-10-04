@@ -222,6 +222,30 @@ mod tests {
         ) -> actual::ActualResult<Option<actual::ExistingTransaction>> {
             unimplemented!("not needed for reconcile tests")
         }
+        async fn get_budget_month(&self, _month: &str) -> actual::ActualResult<Vec<actual::CategoryGroup>> {
+            unimplemented!("not needed for reconcile tests")
+        }
+        async fn get_payees(&self) -> actual::ActualResult<Vec<actual::Payee>> {
+            unimplemented!("not needed for reconcile tests")
+        }
+        async fn get_schedules(&self) -> actual::ActualResult<Vec<actual::Schedule>> {
+            unimplemented!("not needed for reconcile tests")
+        }
+        async fn get_payee_totals(
+            &self,
+            _payee_ids: &[String],
+            _start_date: chrono::NaiveDate,
+            _end_date: chrono::NaiveDate,
+        ) -> actual::ActualResult<Vec<actual::PayeeTotal>> {
+            unimplemented!("not needed for reconcile tests")
+        }
+        async fn get_category_projection(
+            &self,
+            _category_id: &str,
+            _month: &str,
+        ) -> actual::ActualResult<Option<i64>> {
+            unimplemented!("not needed for reconcile tests")
+        }
     }
 
     #[async_trait]

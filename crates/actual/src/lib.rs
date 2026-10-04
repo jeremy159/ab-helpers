@@ -30,8 +30,10 @@ pub use error::{ActualResult, Error};
 pub use managed_bridge::ensure_managed_bridge_script;
 pub use session::BridgeSession;
 pub use types::{
-    Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, ExistingTransaction,
-    ImportTransaction, LastTransaction, ListAccountsResponse, SaveTransaction,
+    Account, AccountNoteResponse, AddTransactionResponse, BalanceResponse, Category,
+    CategoryGroup, ExistingTransaction, ImportTransaction, LastTransaction, ListAccountsResponse,
+    Payee, PayeeTotal, RecurringConfig, RecurringEndMode, RecurringFrequency, RecurringPattern, RecurringPatternType,
+    SaveTransaction, Schedule, ScheduleAmount, ScheduleDate, WeekendSolveMode,
 };
 
 #[cfg(feature = "testutils")]

@@ -1,5 +1,5 @@
 use ab_helpers_domain::db::DbError;
-use actual::Account;
+use actual::{Account, Payee};
 use axum::{
     extract::{FromRequest, rejection::JsonRejection},
     http::StatusCode,
@@ -40,6 +40,10 @@ pub enum AppError {
     },
     #[error("Multiple Actual accounts match `{name}`: {}", format_matches(matches))]
     ActualAccountAmbiguous { name: String, matches: Vec<Account> },
+    #[error("Actual payee `{name}` not found.{}", payees_suffix(available))]
+    ActualPayeeNotFound { name: String, available: Vec<Payee> },
+    #[error("Multiple Actual payees match `{name}`: {}", format_payee_matches(matches))]
+    ActualPayeeAmbiguous { name: String, matches: Vec<Payee> },
     #[error("Actual integration error: {0}")]
     Actual(#[from] actual::Error),
     #[error(transparent)]
@@ -59,6 +63,23 @@ fn format_matches(matches: &[Account]) -> String {
     matches
         .iter()
         .map(|a| format!("{} ({})", a.name, a.id))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn payees_suffix(available: &[Payee]) -> String {
+    if available.is_empty() {
+        String::new()
+    } else {
+        let names: Vec<&str> = available.iter().map(|p| p.name.as_str()).collect();
+        format!(" Available payees: {}", names.join(", "))
+    }
+}
+
+fn format_payee_matches(matches: &[Payee]) -> String {
+    matches
+        .iter()
+        .map(|p| format!("{} ({})", p.name, p.id))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -92,6 +113,13 @@ impl IntoResponse for AppError {
             AppError::ActualAccountAmbiguous { .. } => (
                 StatusCode::BAD_REQUEST,
                 "Account name matches multiple accounts".to_owned(),
+            ),
+            AppError::ActualPayeeNotFound { .. } => {
+                (StatusCode::NOT_FOUND, "Payee does not exist".to_owned())
+            }
+            AppError::ActualPayeeAmbiguous { .. } => (
+                StatusCode::BAD_REQUEST,
+                "Payee name matches multiple payees".to_owned(),
             ),
             AppError::Actual(_) => (
                 StatusCode::BAD_GATEWAY,

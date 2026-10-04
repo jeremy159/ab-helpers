@@ -93,6 +93,20 @@ pub enum BridgeRequest {
     AddTransaction(SaveTransaction),
     #[serde(rename = "import-transaction")]
     ImportTransaction(ImportTransactionRequest),
+    #[serde(rename = "get-budget-month", rename_all = "camelCase")]
+    GetBudgetMonth { month: String },
+    #[serde(rename = "get-payees")]
+    GetPayees,
+    #[serde(rename = "get-schedules")]
+    GetSchedules,
+    #[serde(rename = "get-payee-totals", rename_all = "camelCase")]
+    GetPayeeTotals {
+        payee_ids: Vec<String>,
+        start_date: String,
+        end_date: String,
+    },
+    #[serde(rename = "get-category-projection", rename_all = "camelCase")]
+    GetCategoryProjection { category_id: String, month: String },
 }
 
 impl BridgeRequest {

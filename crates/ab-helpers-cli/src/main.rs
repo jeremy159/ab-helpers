@@ -36,6 +36,9 @@ enum SettingsCommand {
     ApplyKiaInterest(commands::interest::InterestArgs),
     /// Apply monthly mortgage interest.
     ApplyMortgageInterest(commands::interest::InterestArgs),
+    /// Income split / common-vs-individual expense summary, derived from
+    /// Actual (schedules + Budget Automation), for a month.
+    BudgetSummary(commands::budget_summary::BudgetSummaryArgs),
     /// Run the daemon scheduler (production entry point).
     Daemon,
 }
@@ -99,6 +102,7 @@ async fn run(args: Cli) -> Result<(), CliError> {
                     commands::interest::run(settings, a, commands::interest::InterestKind::Mortgage)
                         .await
                 }
+                SettingsCommand::BudgetSummary(a) => commands::budget_summary::run(settings, a).await,
                 SettingsCommand::Daemon => commands::daemon::run(settings).await,
             }
         }

@@ -27,3 +27,17 @@ account_id = "your-mortgage-account-id"
 # Default payee name for `abh set-balance` adjustments; still overridable
 # per call with --payee-name.
 payee_name = "Balance Adjustment"
+
+# `abh budget-summary`: one entry per person. `payees` are Actual payee
+# names (case-insensitive) whose income counts toward that person; the
+# person's `name` is also used to classify expense categories as
+# individual to them (a category whose name contains this string,
+# case-insensitive - e.g. "Auto - Jeremy" - counts as Jeremy's, otherwise
+# it's treated as a shared/common expense).
+# [[actual.budget_summary.persons]]
+# name = "Jeremy"
+# payees = ["Employer Inc"]
+#
+# [[actual.budget_summary.persons]]
+# name = "Sandryne"
+# payees = ["Sandryne's Employer"]

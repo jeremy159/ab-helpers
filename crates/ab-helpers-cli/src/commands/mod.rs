@@ -1,5 +1,6 @@
 pub mod error;
 
+pub mod budget_summary;
 pub mod daemon;
 pub mod init;
 pub mod interest;

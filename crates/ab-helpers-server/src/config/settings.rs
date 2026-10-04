@@ -147,6 +147,8 @@ pub struct ActualSettings {
     pub mortgage: MortgageSettings,
     #[serde(default)]
     pub set_balance: SetBalanceSettings,
+    #[serde(default)]
+    pub budget_summary: BudgetSummarySettings,
 }
 
 fn default_node_bin() -> String {
@@ -171,6 +173,23 @@ impl Default for SetBalanceSettings {
 
 fn default_set_balance_payee_name() -> String {
     "Balance Adjustment".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct BudgetSummarySettings {
+    #[serde(default)]
+    pub persons: Vec<PersonSettings>,
+}
+
+/// A person tracked by `abh budget-summary`: their income payee(s) and,
+/// implicitly, their name is used to classify expense categories as
+/// individual to them (substring match against the category name).
+#[derive(Debug, Clone, Deserialize)]
+pub struct PersonSettings {
+    pub name: String,
+    /// Payee names (case-insensitive, as in Actual) whose income belongs to
+    /// this person.
+    pub payees: Vec<String>,
 }
 
 impl ActualSettings {
