@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use ab_helpers_server::{
     config::Settings,
@@ -16,6 +17,57 @@ use tokio_cron_scheduler::{Job, JobScheduler};
 
 use super::error::CliError;
 use super::interest::InterestKind;
+
+const BRIDGE_READY_ATTEMPTS: u32 = 6;
+const BRIDGE_READY_RETRY_DELAY: Duration = Duration::from_secs(10);
+const BRIDGE_READY_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Blocks until the Actual server at `server_url` accepts a connection, or
+/// gives up after `BRIDGE_READY_ATTEMPTS` attempts. This exists because right
+/// after a container start the daemon's startup catch-up can run before the
+/// Actual server/network is reachable; probing first avoids spawning the
+/// bridge process against a server that isn't up yet.
+async fn wait_for_bridge_ready(server_url: &str) {
+    let client = match reqwest::Client::builder()
+        .timeout(BRIDGE_READY_PROBE_TIMEOUT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            tracing::warn!(
+                ?err,
+                "failed to build readiness-probe HTTP client, skipping startup readiness wait"
+            );
+            return;
+        }
+    };
+
+    for attempt in 1..=BRIDGE_READY_ATTEMPTS {
+        // Any response at all, even an error status, proves the server is
+        // reachable; only a connection/timeout failure means "not up yet".
+        match client.get(server_url).send().await {
+            Ok(_) => return,
+            Err(err)
+                if attempt < BRIDGE_READY_ATTEMPTS && (err.is_connect() || err.is_timeout()) =>
+            {
+                tracing::warn!(
+                    ?err,
+                    attempt,
+                    max_attempts = BRIDGE_READY_ATTEMPTS,
+                    "Actual server not reachable yet, waiting before startup catch-up"
+                );
+                tokio::time::sleep(BRIDGE_READY_RETRY_DELAY).await;
+            }
+            Err(err) => {
+                tracing::warn!(
+                    ?err,
+                    "giving up waiting for Actual server readiness, proceeding anyway"
+                );
+                return;
+            }
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct DaemonState {
@@ -129,7 +181,12 @@ fn log_next_run(cron_6field: &str, tz: Tz, kind: &str) {
             None => tracing::warn!(kind, "could not compute next scheduled run"),
         },
         Err(err) => {
-            tracing::warn!(?err, expr = cron_6field, kind, "failed to parse cron expression")
+            tracing::warn!(
+                ?err,
+                expr = cron_6field,
+                kind,
+                "failed to parse cron expression"
+            )
         }
     }
 }
@@ -148,6 +205,7 @@ async fn run_inner(settings: Settings) -> anyhow::Result<()> {
     // --- Missed-tick catch-up on startup ---
     {
         let kinds = [InterestKind::Kia, InterestKind::Mortgage];
+        let mut missed_kinds = Vec::new();
         for kind in kinds {
             let cron = state.lock().await.cron(kind, &settings).to_owned();
             let missed = state
@@ -156,16 +214,23 @@ async fn run_inner(settings: Settings) -> anyhow::Result<()> {
                 .last_run(kind)
                 .is_none_or(|t| tick_was_missed(&cron, t, tz));
             if missed {
-                tracing::info!(
-                    kind = kind.label(),
-                    "interest tick was missed - running now"
-                );
-                run_interest(kind, &settings, &state, &data_dir).await;
+                missed_kinds.push(kind);
             } else {
                 tracing::info!(
                     kind = kind.label(),
                     "interest tick is current, no catch-up needed"
                 );
+            }
+        }
+
+        if !missed_kinds.is_empty() {
+            wait_for_bridge_ready(&settings.actual.server_url).await;
+            for kind in missed_kinds {
+                tracing::info!(
+                    kind = kind.label(),
+                    "interest tick was missed - running now"
+                );
+                run_interest(kind, &settings, &state, &data_dir).await;
             }
         }
     }

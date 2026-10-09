@@ -15,6 +15,7 @@ dependencies = [
  "clap",
  "cron",
  "inquire",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",

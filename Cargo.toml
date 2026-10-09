@@ -47,3 +47,4 @@ fake = { version = "5", features = ["chrono", "derive", "uuid"] }
 rand = { version = "0.10" }
 tokio-cron-scheduler = "0.13"
 cron = "0.12"
+reqwest = { version = "0.12" }
