@@ -187,9 +187,12 @@ pub struct BudgetSummarySettings {
 #[derive(Debug, Clone, Deserialize)]
 pub struct PersonSettings {
     pub name: String,
-    /// Payee names (case-insensitive, as in Actual) whose income belongs to
-    /// this person.
-    pub payees: Vec<String>,
+    /// Payee name (case-insensitive, as in Actual) of this person's regular
+    /// paycheque.
+    pub salary_payee: String,
+    /// Other income payee names (benefits, allowances, etc.).
+    #[serde(default)]
+    pub allocation_payees: Vec<String>,
 }
 
 impl ActualSettings {

@@ -1,14 +1,35 @@
 use super::error::CliError;
-use ab_helpers_domain::{BudgetSummary, BudgeterExt, YearMonth};
+use ab_helpers_domain::{BudgetMode, BudgetSummary, BudgeterExt, YearMonth};
 use ab_helpers_server::config::Settings;
 use ab_helpers_server::services::actual::BudgetSummaryService;
-use clap::Args;
+use clap::{Args, ValueEnum};
 
 #[derive(Args, Debug)]
 pub struct BudgetSummaryArgs {
     /// Month to report on, `YYYY-MM`. Defaults to the current month.
     #[arg(long)]
     pub month: Option<String>,
+
+    /// How salary and Budget-Automation-projected expenses are computed:
+    /// `annualized` (calendar-year average, smoothing lumpy pay periods and
+    /// annual bills) or `actual` (target month only).
+    #[arg(long, value_enum, default_value = "annualized")]
+    pub budget_mode: BudgetModeArg,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+pub enum BudgetModeArg {
+    Annualized,
+    Actual,
+}
+
+impl From<BudgetModeArg> for BudgetMode {
+    fn from(mode: BudgetModeArg) -> Self {
+        match mode {
+            BudgetModeArg::Annualized => BudgetMode::Annualized,
+            BudgetModeArg::Actual => BudgetMode::Actual,
+        }
+    }
 }
 
 pub async fn run(settings: Settings, args: BudgetSummaryArgs) -> Result<(), CliError> {
@@ -19,13 +40,13 @@ pub async fn run(settings: Settings, args: BudgetSummaryArgs) -> Result<(), CliE
         None => YearMonth::current(),
     };
 
-    tracing::info!(month = %month, "budget-summary started");
+    let budget_mode: BudgetMode = args.budget_mode.into();
+
+    tracing::info!(month = %month, ?budget_mode, "budget-summary started");
 
     let persons = settings.actual.budget_summary.persons.clone();
     if persons.is_empty() {
-        println!(
-            "No persons configured under `actual.budget_summary.persons`. Nothing to report."
-        );
+        println!("No persons configured under `actual.budget_summary.persons`. Nothing to report.");
         return Ok(());
     }
 
@@ -34,7 +55,7 @@ pub async fn run(settings: Settings, args: BudgetSummaryArgs) -> Result<(), CliE
         .with_session(move |client| async move {
             let service = BudgetSummaryService::new(client, persons);
             let summary = service
-                .build(month)
+                .build(month, budget_mode)
                 .await
                 .map_err(|e| CliError::Failure(e.into()))?;
 
@@ -65,7 +86,24 @@ fn print_table(month: YearMonth, summary: &BudgetSummary) {
     let rows: Vec<(&str, Vec<String>)> = vec![
         (
             "Paie",
-            columns.iter().map(|c| c.salary_month().to_string()).collect(),
+            columns
+                .iter()
+                .map(|c| c.salary_occurrence().to_string())
+                .collect(),
+        ),
+        (
+            "Allocations",
+            columns
+                .iter()
+                .map(|c| c.allocations_total().to_string())
+                .collect(),
+        ),
+        (
+            "Paie par mois",
+            columns
+                .iter()
+                .map(|c| c.salary_month().to_string())
+                .collect(),
         ),
         (
             "Fraction",
@@ -75,14 +113,14 @@ fn print_table(month: YearMonth, summary: &BudgetSummary) {
                 .collect(),
         ),
         (
-            "Estimation Dépenses S",
+            "Estimation Dépenses communes",
             columns
                 .iter()
                 .map(|c| c.common_expenses().to_string())
                 .collect(),
         ),
         (
-            "Estimation Dépenses J",
+            "Estimation Dépenses individuelles",
             columns
                 .iter()
                 .map(|c| c.individual_expenses().to_string())

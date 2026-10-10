@@ -16,11 +16,11 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use uuid::Uuid;
 
 use super::money::Money;
-use super::recurrence::ScheduleTiming;
+use super::recurrence::{RecurringConfig, RecurringFrequency, ScheduleTiming};
 
 /// A person's recurring (or one-off) income source: a payee plus its
 /// resolved per-occurrence amount and timing.
@@ -85,6 +85,16 @@ pub enum SalarySource {
     TransactionHistoryFallback,
 }
 
+/// Whether income/expenses use the target month's actual value, or a
+/// calendar-year average (smooths out lumpy biweekly pay periods, annual
+/// bills, etc.).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BudgetMode {
+    #[default]
+    Annualized,
+    Actual,
+}
+
 /// Per-payee breakdown behind a [`Budgeter`]'s `salary_month`, for display.
 #[derive(Debug, Clone)]
 pub struct SalaryFragment {
@@ -101,9 +111,19 @@ pub trait BudgeterState {}
 pub struct Configured {
     pub id: Uuid,
     pub name: String,
-    pub payee_ids: Vec<String>,
+    /// The payee whose schedule is this person's regular paycheque
+    pub salary_payee_id: String,
+    /// Other income payees (benefits, allowances, etc.)
+    pub allocation_payee_ids: Vec<String>,
 }
 impl BudgeterState for Configured {}
+
+impl Configured {
+    fn all_payee_ids(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.salary_payee_id.as_str())
+            .chain(self.allocation_payee_ids.iter().map(String::as_str))
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ComputedSalary {
@@ -133,12 +153,16 @@ pub struct Budgeter<S: BudgeterState> {
 #[derive(Debug, Clone)]
 pub struct TotalComputedSalary {
     pub salary_month: Money,
+    pub salary_occurrence: Money,
+    pub allocations_total: Money,
 }
 impl BudgeterState for TotalComputedSalary {}
 
 #[derive(Debug, Clone)]
 pub struct TotalComputedExpenses {
     pub salary_month: Money,
+    pub salary_occurrence: Money,
+    pub allocations_total: Money,
     pub common_expenses: Money,
     pub individual_expenses: Money,
     pub left_over: Money,
@@ -177,40 +201,51 @@ pub trait BudgeterExt {
     fn left_over(&self) -> Money {
         Money::ZERO
     }
+
+    fn salary_occurrence(&self) -> Money {
+        Money::ZERO
+    }
+
+    fn allocations_total(&self) -> Money {
+        Money::ZERO
+    }
 }
 
 impl Budgeter<Configured> {
-    pub fn new(name: impl Into<String>, payee_ids: Vec<String>) -> Self {
+    pub fn new(
+        name: impl Into<String>,
+        salary_payee_id: impl Into<String>,
+        allocation_payee_ids: Vec<String>,
+    ) -> Self {
         Self {
             state: Configured {
                 id: Uuid::new_v4(),
                 name: name.into(),
-                payee_ids,
+                salary_payee_id: salary_payee_id.into(),
+                allocation_payee_ids,
             },
         }
     }
 
-    /// Sums this person's income for `[month_start, month_end]`: for each
-    /// configured payee, expands any matching `schedules`' occurrences in
-    /// that range and sums `amount * occurrences`.
-    ///
-    /// A payee with no matching schedule falls back to
-    /// `fallback_totals` (a historical-transaction sum for that payee/month,
-    /// resolved by the caller).
+    /// Sums this person's income for `[month_start, month_end]`. Under
+    /// `BudgetMode::Annualized`, a recurring schedule is instead averaged
+    /// over the whole calendar year (`OneOff` and the `fallback_totals`
+    /// path are unaffected - there's no yearly pattern to average there).
     pub fn compute_salary(
         self,
         schedules: &[IncomeSchedule],
         fallback_totals: &HashMap<String, Money>,
         month_start: NaiveDate,
         month_end: NaiveDate,
+        budget_mode: BudgetMode,
     ) -> Budgeter<ComputedSalary> {
         let mut fragments = Vec::new();
         let mut salary_month = Money::ZERO;
 
-        for payee_id in &self.state.payee_ids {
+        for payee_id in self.state.all_payee_ids().collect::<Vec<_>>() {
             let payee_schedules: Vec<&IncomeSchedule> = schedules
                 .iter()
-                .filter(|s| &s.payee_id == payee_id)
+                .filter(|s| s.payee_id == payee_id)
                 .collect();
 
             if payee_schedules.is_empty() {
@@ -218,7 +253,7 @@ impl Budgeter<Configured> {
                     salary_month = salary_month + *total;
 
                     fragments.push(SalaryFragment {
-                        payee_id: payee_id.clone(),
+                        payee_id: payee_id.to_string(),
                         occurrences: Vec::new(),
                         amount_per_occurrence: *total,
                         total: *total,
@@ -230,23 +265,17 @@ impl Budgeter<Configured> {
             }
 
             for schedule in payee_schedules {
-                let occurrences = schedule.timing.expand_occurrences(month_start, month_end);
+                let fragment = match (budget_mode, &schedule.timing) {
+                    (BudgetMode::Annualized, ScheduleTiming::Recurring(_)) => {
+                        annualized_fragment(payee_id, schedule, month_start)
+                    }
+                    _ => actual_month_fragment(payee_id, schedule, month_start, month_end),
+                };
 
-                if occurrences.is_empty() {
-                    continue;
+                if let Some(fragment) = fragment {
+                    salary_month = salary_month + fragment.total;
+                    fragments.push(fragment);
                 }
-
-                let total = Money::from_cents(schedule.amount.cents() * occurrences.len() as i64);
-
-                salary_month = salary_month + total;
-
-                fragments.push(SalaryFragment {
-                    payee_id: payee_id.clone(),
-                    occurrences,
-                    amount_per_occurrence: schedule.amount,
-                    total,
-                    source: SalarySource::Schedule,
-                });
             }
         }
 
@@ -257,6 +286,76 @@ impl Budgeter<Configured> {
                 fragments,
             },
         }
+    }
+}
+
+/// `amount * occurrences actually falling within [month_start, month_end]`.
+fn actual_month_fragment(
+    payee_id: &str,
+    schedule: &IncomeSchedule,
+    month_start: NaiveDate,
+    month_end: NaiveDate,
+) -> Option<SalaryFragment> {
+    let occurrences = schedule.timing.expand_occurrences(month_start, month_end);
+    if occurrences.is_empty() {
+        return None;
+    }
+
+    let total = Money::from_cents(schedule.amount.cents() * occurrences.len() as i64);
+
+    Some(SalaryFragment {
+        payee_id: payee_id.to_string(),
+        occurrences,
+        amount_per_occurrence: schedule.amount,
+        total,
+        source: SalarySource::Schedule,
+    })
+}
+
+/// `amount * canonical_occurrences_per_year(config) / 12`, rounded to the
+/// nearest cent.
+fn annualized_fragment(
+    payee_id: &str,
+    schedule: &IncomeSchedule,
+    month_start: NaiveDate,
+) -> Option<SalaryFragment> {
+    let ScheduleTiming::Recurring(config) = &schedule.timing else {
+        unreachable!("annualized_fragment is only called for Recurring schedules")
+    };
+
+    let year = month_start.year();
+    let year_start = NaiveDate::from_ymd_opt(year, 1, 1).expect("valid year start");
+    let year_end = NaiveDate::from_ymd_opt(year, 12, 31).expect("valid year end");
+
+    let occurrences = schedule.timing.expand_occurrences(year_start, year_end);
+    if occurrences.is_empty() {
+        return None;
+    }
+
+    let yearly_total = schedule.amount.cents() as f64 * canonical_occurrences_per_year(config);
+    let total = Money::from_cents((yearly_total / 12.0).round() as i64);
+
+    Some(SalaryFragment {
+        payee_id: payee_id.to_string(),
+        occurrences,
+        amount_per_occurrence: schedule.amount,
+        total,
+        source: SalarySource::Schedule,
+    })
+}
+
+/// How many times a recurring schedule fires in a typical calendar year,
+/// derived purely from its frequency/interval.
+fn canonical_occurrences_per_year(config: &RecurringConfig) -> f64 {
+    let interval = config.interval.max(1) as f64;
+    match config.frequency {
+        RecurringFrequency::Daily => 365.0 / interval,
+        RecurringFrequency::Weekly => 52.0 / interval,
+        RecurringFrequency::Monthly => {
+            let dates_per_period = config.patterns.len().max(1) as f64;
+            12.0 / interval * dates_per_period
+        }
+        RecurringFrequency::Yearly => 1.0 / interval,
     }
 }
 
@@ -305,9 +404,19 @@ impl TotalBudgeter<TotalComputedSalary> {
         let salary_month = budgeters
             .iter()
             .fold(Money::ZERO, |acc, b| acc + b.salary_month());
+        let salary_occurrence = budgeters
+            .iter()
+            .fold(Money::ZERO, |acc, b| acc + b.salary_occurrence());
+        let allocations_total = budgeters
+            .iter()
+            .fold(Money::ZERO, |acc, b| acc + b.allocations_total());
 
         Self {
-            state: TotalComputedSalary { salary_month },
+            state: TotalComputedSalary {
+                salary_month,
+                salary_occurrence,
+                allocations_total,
+            },
         }
     }
 
@@ -342,6 +451,8 @@ impl TotalBudgeter<TotalComputedSalary> {
             TotalBudgeter {
                 state: TotalComputedExpenses {
                     salary_month: self.state.salary_month,
+                    salary_occurrence: self.state.salary_occurrence,
+                    allocations_total: self.state.allocations_total,
                     common_expenses,
                     individual_expenses,
                     left_over,
@@ -374,12 +485,38 @@ impl BudgeterExt for Budgeter<ComputedSalary> {
     fn salary_month(&self) -> Money {
         self.state.salary_month
     }
+
+    fn salary_occurrence(&self) -> Money {
+        salary_occurrence(&self.state.configured, &self.state.fragments)
+    }
+
+    fn allocations_total(&self) -> Money {
+        allocations_total(&self.state.configured, &self.state.fragments)
+    }
 }
 
 impl Budgeter<ComputedSalary> {
     pub fn fragments(&self) -> &[SalaryFragment] {
         &self.state.fragments
     }
+}
+
+/// Sum of `amount_per_occurrence` across fragments for `configured`'s salary
+/// payee (normally just one fragment/schedule).
+fn salary_occurrence(configured: &Configured, fragments: &[SalaryFragment]) -> Money {
+    fragments
+        .iter()
+        .filter(|f| f.payee_id == configured.salary_payee_id)
+        .fold(Money::ZERO, |acc, f| acc + f.amount_per_occurrence)
+}
+
+/// Sum of `total` across fragments for every payee other than `configured`'s
+/// salary payee.
+fn allocations_total(configured: &Configured, fragments: &[SalaryFragment]) -> Money {
+    fragments
+        .iter()
+        .filter(|f| f.payee_id != configured.salary_payee_id)
+        .fold(Money::ZERO, |acc, f| acc + f.total)
 }
 
 impl BudgeterExt for Budgeter<ComputedExpenses> {
@@ -410,6 +547,20 @@ impl BudgeterExt for Budgeter<ComputedExpenses> {
     fn left_over(&self) -> Money {
         self.state.left_over
     }
+
+    fn salary_occurrence(&self) -> Money {
+        salary_occurrence(
+            &self.state.computed_salary.configured,
+            &self.state.computed_salary.fragments,
+        )
+    }
+
+    fn allocations_total(&self) -> Money {
+        allocations_total(
+            &self.state.computed_salary.configured,
+            &self.state.computed_salary.fragments,
+        )
+    }
 }
 
 impl BudgeterExt for TotalBudgeter<TotalComputedSalary> {
@@ -423,6 +574,14 @@ impl BudgeterExt for TotalBudgeter<TotalComputedSalary> {
 
     fn salary_month(&self) -> Money {
         self.state.salary_month
+    }
+
+    fn salary_occurrence(&self) -> Money {
+        self.state.salary_occurrence
+    }
+
+    fn allocations_total(&self) -> Money {
+        self.state.allocations_total
     }
 }
 
@@ -453,6 +612,14 @@ impl BudgeterExt for TotalBudgeter<TotalComputedExpenses> {
 
     fn left_over(&self) -> Money {
         self.state.left_over
+    }
+
+    fn salary_occurrence(&self) -> Money {
+        self.state.salary_occurrence
+    }
+
+    fn allocations_total(&self) -> Money {
+        self.state.allocations_total
     }
 }
 
