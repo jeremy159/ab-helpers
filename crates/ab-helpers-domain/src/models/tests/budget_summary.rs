@@ -21,6 +21,7 @@ fn category(name: &str, amount_cents: i64) -> ExpenseCategory {
         id: name.to_string(),
         name: name.to_string(),
         projected_amount: Money::from_cents(amount_cents),
+        group_name: String::new(),
     }
 }
 

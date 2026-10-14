@@ -149,6 +149,8 @@ pub struct ActualSettings {
     pub set_balance: SetBalanceSettings,
     #[serde(default)]
     pub budget_summary: BudgetSummarySettings,
+    #[serde(default)]
+    pub budget_details: BudgetDetailsSettings,
 }
 
 fn default_node_bin() -> String {
@@ -179,6 +181,16 @@ fn default_set_balance_payee_name() -> String {
 pub struct BudgetSummarySettings {
     #[serde(default)]
     pub persons: Vec<PersonSettings>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct BudgetDetailsSettings {
+    /// Category names (case-insensitive) whose amount is added back into the income total
+    /// used for budget-details percentages. These categories are
+    /// still shown as rows in budget-details, but excluded entirely from
+    /// budget-summary's common/individual/left-over totals.
+    #[serde(default)]
+    pub income_addback_categories: Vec<String>,
 }
 
 /// A person tracked by `abh budget-summary`: their income payee(s) and,

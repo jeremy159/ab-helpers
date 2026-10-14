@@ -126,7 +126,9 @@ impl<R: ActualReadClient + 'static, W: ActualWriteClient + 'static> PlanExecute
         self.writer.as_ref()
     }
 
-    async fn plan(ctx: &ReconcilePlanCtx<R>) -> ABHelpersResult<PlanOutcome<ReconcileSkip, ReconcilePlan>> {
+    async fn plan(
+        ctx: &ReconcilePlanCtx<R>,
+    ) -> ABHelpersResult<PlanOutcome<ReconcileSkip, ReconcilePlan>> {
         let accounts = ctx.reader.list_accounts().await?;
 
         let account = match match_account(&accounts, &ctx.account_name) {
@@ -222,7 +224,10 @@ mod tests {
         ) -> actual::ActualResult<Option<actual::ExistingTransaction>> {
             unimplemented!("not needed for reconcile tests")
         }
-        async fn get_budget_month(&self, _month: &str) -> actual::ActualResult<Vec<actual::CategoryGroup>> {
+        async fn get_budget_month(
+            &self,
+            _month: &str,
+        ) -> actual::ActualResult<Vec<actual::CategoryGroup>> {
             unimplemented!("not needed for reconcile tests")
         }
         async fn get_payees(&self) -> actual::ActualResult<Vec<actual::Payee>> {
@@ -287,10 +292,7 @@ mod tests {
         })
     }
 
-    fn svc_with_client(
-        client: Arc<FakeClient>,
-        target_cents: i64,
-    ) -> ReconcileService<FakeClient> {
+    fn svc_with_client(client: Arc<FakeClient>, target_cents: i64) -> ReconcileService<FakeClient> {
         ReconcileService::new(
             client,
             "Checking".to_string(),
@@ -324,7 +326,10 @@ mod tests {
             outcome,
             Preview::Skip(ReconcileSkip::AlreadyAtTarget { .. })
         ));
-        assert!(client.last_tx.lock().unwrap().is_none(), "dry-run must not write");
+        assert!(
+            client.last_tx.lock().unwrap().is_none(),
+            "dry-run must not write"
+        );
     }
 
     #[tokio::test]
@@ -368,7 +373,10 @@ mod tests {
             }
             other => panic!("unexpected: {other:?}"),
         }
-        assert!(client.last_tx.lock().unwrap().is_none(), "dry-run must not write");
+        assert!(
+            client.last_tx.lock().unwrap().is_none(),
+            "dry-run must not write"
+        );
     }
 
     #[tokio::test]

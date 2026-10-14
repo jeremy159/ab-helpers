@@ -9,6 +9,7 @@ abh set-balance <account> <amount> [--dry-run]   # Reconcile an account to a tar
 abh apply-kia-interest       [--dry-run]          # Apply weekly Kia loan interest
 abh apply-mortgage-interest  [--dry-run]          # Apply monthly mortgage interest
 abh budget-summary           [--month YYYY-MM]    # Income split / common vs. individual expense summary
+abh budget-details           [--month YYYY-MM]    # Nested category-level breakdown of every expense
 abh daemon                                        # Run the cron scheduler (production entry point)
 ```
 

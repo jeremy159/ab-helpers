@@ -54,6 +54,7 @@ pub struct ExpenseCategory {
     pub id: String,
     pub name: String,
     pub projected_amount: Money,
+    pub group_name: String,
 }
 
 impl ExpenseCategory {

@@ -7,6 +7,8 @@ use commands::error::CliError;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
 mod commands;
+#[cfg(test)]
+mod tests;
 
 /// abh: Actual Budget Helpers CLI.
 #[derive(Parser, Debug)]
@@ -39,6 +41,9 @@ enum SettingsCommand {
     /// Income split / common-vs-individual expense summary, derived from
     /// Actual (schedules + Budget Automation), for a month.
     BudgetSummary(commands::budget_summary::BudgetSummaryArgs),
+    /// Nested expense breakdown (top group / sub-group / category), derived
+    /// from Actual, for a month.
+    BudgetDetails(commands::budget_details::BudgetDetailsArgs),
     /// Run the daemon scheduler (production entry point).
     Daemon,
 }
@@ -91,9 +96,7 @@ async fn run(args: Cli) -> Result<(), CliError> {
 
             match cmd {
                 SettingsCommand::SetBalance(a) => commands::set_balance::run(settings, a).await,
-                SettingsCommand::ListAccounts(a) => {
-                    commands::list_accounts::run(settings, a).await
-                }
+                SettingsCommand::ListAccounts(a) => commands::list_accounts::run(settings, a).await,
                 SettingsCommand::ApplyKiaInterest(a) => {
                     commands::interest::run(settings, a, commands::interest::InterestKind::Kia)
                         .await
@@ -102,30 +105,14 @@ async fn run(args: Cli) -> Result<(), CliError> {
                     commands::interest::run(settings, a, commands::interest::InterestKind::Mortgage)
                         .await
                 }
-                SettingsCommand::BudgetSummary(a) => commands::budget_summary::run(settings, a).await,
+                SettingsCommand::BudgetSummary(a) => {
+                    commands::budget_summary::run(settings, a).await
+                }
+                SettingsCommand::BudgetDetails(a) => {
+                    commands::budget_details::run(settings, a).await
+                }
                 SettingsCommand::Daemon => commands::daemon::run(settings).await,
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Cli, SettingsCommand, Commands, default_filter_for};
-    use clap::Parser;
-
-    #[test]
-    fn daemon_defaults_to_info() {
-        let command = Commands::WithSettings(SettingsCommand::Daemon);
-        assert_eq!(default_filter_for(&command), "abh=info,actual=info");
-    }
-
-    #[test]
-    fn one_shot_commands_default_to_warn() {
-        let init = Cli::parse_from(["abh", "init"]).command;
-        assert_eq!(default_filter_for(&init), "abh=warn,actual=warn");
-
-        let interest = Cli::parse_from(["abh", "apply-kia-interest"]).command;
-        assert_eq!(default_filter_for(&interest), "abh=warn,actual=warn");
     }
 }

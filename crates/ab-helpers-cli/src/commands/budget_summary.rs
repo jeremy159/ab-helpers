@@ -49,21 +49,34 @@ pub async fn run(settings: Settings, args: BudgetSummaryArgs) -> Result<(), CliE
         println!("No persons configured under `actual.budget_summary.persons`. Nothing to report.");
         return Ok(());
     }
+    let income_addback_categories = settings
+        .actual
+        .budget_details
+        .income_addback_categories
+        .clone();
 
     settings
         .actual
         .with_session(move |client| async move {
-            let service = BudgetSummaryService::new(client, persons);
-            let summary = service
-                .build(month, budget_mode)
-                .await
-                .map_err(|e| CliError::Failure(e.into()))?;
+            let service = BudgetSummaryService::new(client, persons, income_addback_categories);
+            let (summary, unmatched_addback_categories) =
+                service
+                    .build(month, budget_mode)
+                    .await
+                    .map_err(|e| CliError::Failure(e.into()))?;
 
             tracing::info!(
                 budgeters = summary.budgeters.len(),
                 total_salary = %summary.total.salary_month(),
                 "budget-summary computed"
             );
+
+            for name in &unmatched_addback_categories {
+                super::print_warning(&format!(
+                    "income_addback_categories entry \"{name}\" matched no fetched category \
+                     (check for a typo, stray whitespace, or a hidden/renamed Actual category)"
+                ));
+            }
 
             print_table(month, &summary);
             Ok(())

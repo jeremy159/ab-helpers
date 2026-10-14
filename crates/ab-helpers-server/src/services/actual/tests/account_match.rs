@@ -78,11 +78,17 @@ fn splits_accounts_by_budget_status_and_sorts_each_group_by_name() {
     let (on_budget, off_budget) = split_by_budget(&accounts);
 
     assert_eq!(
-        on_budget.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        on_budget
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>(),
         ["Checking", "Savings"]
     );
     assert_eq!(
-        off_budget.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        off_budget
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>(),
         ["Kia Loan", "Valeur Kia"]
     );
 }

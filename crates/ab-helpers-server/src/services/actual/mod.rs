@@ -1,4 +1,6 @@
 mod account_match;
+mod budget_data;
+mod budget_details;
 mod budget_summary;
 mod income_schedule_adapter;
 mod interest;
@@ -8,6 +10,7 @@ mod reconcile;
 mod tests;
 
 pub use account_match::*;
+pub use budget_details::*;
 pub use budget_summary::*;
 pub use interest::*;
 pub use payee_match::*;

@@ -1,0 +1,54 @@
+use std::sync::Arc;
+
+use ab_helpers_domain::{BudgetDetails, BudgetMode, BudgeterExt, Money, YearMonth};
+
+use crate::config::PersonSettings;
+use crate::error::ABHelpersResult;
+
+use super::ActualReadClient;
+use super::budget_data::{is_income_addback, resolve_budget_data, unmatched_addback_categories};
+
+pub struct BudgetDetailsService<R> {
+    reader: Arc<R>,
+    persons: Vec<PersonSettings>,
+    income_addback_categories: Vec<String>,
+}
+
+impl<R: ActualReadClient + 'static> BudgetDetailsService<R> {
+    pub fn new(
+        reader: Arc<R>,
+        persons: Vec<PersonSettings>,
+        income_addback_categories: Vec<String>,
+    ) -> Self {
+        Self {
+            reader,
+            persons,
+            income_addback_categories,
+        }
+    }
+
+    pub async fn build_details(
+        &self,
+        month: YearMonth,
+        budget_mode: BudgetMode,
+    ) -> ABHelpersResult<(BudgetDetails, Vec<String>)> {
+        let (budgeters_with_salary, categories) =
+            resolve_budget_data(self.reader.as_ref(), &self.persons, month, budget_mode).await?;
+
+        let unmatched = unmatched_addback_categories(&self.income_addback_categories, &categories);
+
+        let total_salary_month = budgeters_with_salary
+            .iter()
+            .fold(Money::ZERO, |acc, b| acc + b.salary_month());
+
+        let addback_total = categories
+            .iter()
+            .filter(|category| is_income_addback(&self.income_addback_categories, category))
+            .fold(Money::ZERO, |acc, c| acc + c.projected_amount);
+
+        let adjusted_total = total_salary_month + addback_total;
+
+        let details = BudgetDetails::build(&categories, adjusted_total);
+        Ok((details, unmatched))
+    }
+}

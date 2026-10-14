@@ -43,3 +43,13 @@ payee_name = "Balance Adjustment"
 # name = "Sandryne"
 # salary_payee = "Sandryne's Employer"
 # allocation_payees = ["Canada Child Benefit"]
+
+# `abh budget-details`: shares the `persons` above. Category names here are
+# payroll deductions that never show up as income (e.g. health insurance,
+# RRSP/pension contributions deducted before salary lands): they're excluded
+# entirely from `budget-summary`'s totals, but still shown as rows in
+# `budget-details`, with their amount added back into the income total used
+# for that view's percentages. Matched case-insensitively, exact name only
+# (not a substring).
+# [actual.budget_details]
+# income_addback_categories = ["Assurance Santé", "RPA S"]
