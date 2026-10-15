@@ -214,5 +214,13 @@ pub(super) fn unmatched_addback_categories(
 }
 
 fn normalize(name: &str) -> String {
-    name.trim().to_lowercase()
+    strip_leading_emoji(name.trim()).trim().to_lowercase()
+}
+
+fn strip_leading_emoji(name: &str) -> &str {
+    let end = name
+        .char_indices()
+        .find(|(_, c)| c.is_alphanumeric())
+        .map_or(name.len(), |(i, _)| i);
+    &name[end..]
 }

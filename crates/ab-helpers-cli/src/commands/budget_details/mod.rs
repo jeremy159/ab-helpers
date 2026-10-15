@@ -48,14 +48,14 @@ pub async fn run(settings: Settings, args: BudgetDetailsArgs) -> Result<(), CliE
         .actual
         .with_session(move |client| async move {
             let service = BudgetDetailsService::new(client, persons, income_addback_categories);
-            let (details, unmatched_addback_categories) = service
+            let (report, unmatched_addback_categories) = service
                 .build_details(month, budget_mode)
                 .await
                 .map_err(|e| CliError::Failure(e.into()))?;
 
             tracing::info!(
-                groups = details.groups.len(),
-                total = %details.total,
+                groups = report.details.groups.len(),
+                total = %report.details.total,
                 "budget-details computed"
             );
 
@@ -66,7 +66,7 @@ pub async fn run(settings: Settings, args: BudgetDetailsArgs) -> Result<(), CliE
                 ));
             }
 
-            print_details(month, &details);
+            print_details(month, &report);
             Ok(())
         })
         .await

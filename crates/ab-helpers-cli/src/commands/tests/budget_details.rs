@@ -58,13 +58,13 @@ fn build_lines_indents_named_subgroups_under_their_header_and_unnamed_rows_one_l
         labels,
         vec![
             "Obligations",
-            "  Maison",
-            "    Hypothèque",
-            "    Assurance Habitation",
-            "  Taxes",
-            "    Taxes Municipales #1",
+            "    Maison",
+            "        Hypothèque",
+            "        Assurance Habitation",
+            "    Taxes",
+            "        Taxes Municipales #1",
             "Divers",
-            "  Cadeaux",
+            "    Cadeaux",
             "Total",
         ]
     );

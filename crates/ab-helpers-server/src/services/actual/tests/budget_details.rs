@@ -131,10 +131,11 @@ async fn build_details_includes_addback_row_and_adjusts_income_denominator() {
     let client = make_client();
     let svc = BudgetDetailsService::new(client, person_settings(), vec!["Assurance Santé".into()]);
 
-    let (details, _unmatched) = svc
+    let (report, _unmatched) = svc
         .build_details(month(), BudgetMode::Actual)
         .await
         .unwrap();
+    let details = report.details;
 
     // Adjusted income denominator: salary (500000) + addback (10000).
     let adjusted_total = 510_000f64;
@@ -182,7 +183,7 @@ async fn build_details_returns_configured_addback_categories_that_matched_nothin
         vec!["Assurance Santé".into(), "Assurance Vie".into()],
     );
 
-    let (_details, unmatched) = svc
+    let (_report, unmatched) = svc
         .build_details(month(), BudgetMode::Actual)
         .await
         .unwrap();
