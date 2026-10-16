@@ -17,6 +17,7 @@ pub(super) async fn resolve_budget_data<R: ActualReadClient>(
     month: YearMonth,
     budget_mode: BudgetMode,
     use_budgeted_fallback: bool,
+    income_addback_categories: &[String],
 ) -> ABHelpersResult<(Vec<Budgeter<ComputedSalary>>, Vec<ExpenseCategory>)> {
     let month_start = month.start_date();
     let month_end = month.end_date();
@@ -71,12 +72,16 @@ pub(super) async fn resolve_budget_data<R: ActualReadClient>(
     let mut categories = Vec::new();
 
     for group in &category_groups {
-        if group.is_income || group.hidden {
+        if group.hidden {
             continue;
         }
 
         for category in &group.categories {
             if category.hidden {
+                continue;
+            }
+
+            if group.is_income && !name_matches_addback(income_addback_categories, &category.name) {
                 continue;
             }
 
@@ -175,10 +180,14 @@ fn resolve_payee_id(all_payees: &[Payee], payee_name: &str) -> ABHelpersResult<S
     }
 }
 
-pub(super) fn is_income_addback(addback_categories: &[String], category: &ExpenseCategory) -> bool {
+fn name_matches_addback(addback_categories: &[String], name: &str) -> bool {
     addback_categories
         .iter()
-        .any(|addback_name| normalize(&category.name) == normalize(addback_name))
+        .any(|addback_name| normalize(name) == normalize(addback_name))
+}
+
+pub(super) fn is_income_addback(addback_categories: &[String], category: &ExpenseCategory) -> bool {
+    name_matches_addback(addback_categories, &category.name)
 }
 
 pub(super) fn unmatched_addback_categories(

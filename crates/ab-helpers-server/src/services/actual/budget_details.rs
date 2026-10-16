@@ -47,6 +47,7 @@ impl<R: ActualReadClient + 'static> BudgetDetailsService<R> {
             month,
             budget_mode,
             self.use_budgeted_fallback,
+            &self.income_addback_categories,
         )
         .await?;
 

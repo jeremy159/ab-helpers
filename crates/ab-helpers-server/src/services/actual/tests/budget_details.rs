@@ -179,6 +179,83 @@ async fn build_details_includes_addback_row_and_adjusts_income_denominator() {
     assert!((common_row.percentage - 20_000f64 / adjusted_total).abs() < 1e-9);
 }
 
+/// Same as [`make_client`], but the "Assurance Santé" add-back category sits
+/// in an income group (a paycheque's own split destination), alongside a
+/// deposit category that must stay excluded.
+fn make_client_with_addback_in_income_group() -> Arc<FakeClient> {
+    Arc::new(FakeClient {
+        payees: vec![make_payee("payee-alice", "Alice Salary")],
+        payee_totals: vec![PayeeTotal {
+            payee_id: "payee-alice".into(),
+            total: 500_000,
+        }],
+        category_groups: vec![
+            CategoryGroup {
+                id: "group-income".into(),
+                name: "Income".into(),
+                is_income: true,
+                hidden: false,
+                categories: vec![
+                    make_category("cat-addback", "Assurance Santé", 10_000),
+                    make_category("cat-deposit", "Dépôt direct", 490_000),
+                ],
+            },
+            make_group(
+                "group-1",
+                "Obligations - Maison",
+                vec![make_category("cat-common", "Loyer", 20_000)],
+            ),
+        ],
+    })
+}
+
+#[tokio::test]
+async fn build_details_includes_addback_category_from_an_income_group() {
+    let client = make_client_with_addback_in_income_group();
+    let svc = BudgetDetailsService::new(
+        client,
+        person_settings(),
+        vec!["Assurance Santé".into()],
+        true,
+    );
+
+    let (report, unmatched) = svc
+        .build_details(month(), BudgetMode::Actual)
+        .await
+        .unwrap();
+
+    assert!(unmatched.is_empty());
+    // Adjusted income denominator: salary (500000) + addback (10000).
+    assert_eq!(
+        report.income_with_addback,
+        ab_helpers_domain::Money::from_cents(510_000)
+    );
+
+    let addback_row = report
+        .details
+        .groups
+        .iter()
+        .flat_map(|g| &g.sub_groups)
+        .flat_map(|s| &s.rows)
+        .find(|r| r.name == "Assurance Santé")
+        .expect("addback category pulled in despite living in an income group");
+    assert_eq!(
+        addback_row.amount,
+        ab_helpers_domain::Money::from_cents(10_000)
+    );
+
+    // The deposit category is not a configured addback, so it must stay out
+    // of the breakdown entirely.
+    let has_deposit_row = report
+        .details
+        .groups
+        .iter()
+        .flat_map(|g| &g.sub_groups)
+        .flat_map(|s| &s.rows)
+        .any(|r| r.name == "Dépôt direct");
+    assert!(!has_deposit_row);
+}
+
 #[tokio::test]
 async fn build_details_returns_configured_addback_categories_that_matched_nothing() {
     let client = make_client();
