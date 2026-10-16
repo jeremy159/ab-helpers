@@ -12,6 +12,7 @@ pub struct BudgetDetailsService<R> {
     reader: Arc<R>,
     persons: Vec<PersonSettings>,
     income_addback_categories: Vec<String>,
+    use_budgeted_fallback: bool,
 }
 
 pub struct BudgetDetailsReport {
@@ -25,11 +26,13 @@ impl<R: ActualReadClient + 'static> BudgetDetailsService<R> {
         reader: Arc<R>,
         persons: Vec<PersonSettings>,
         income_addback_categories: Vec<String>,
+        use_budgeted_fallback: bool,
     ) -> Self {
         Self {
             reader,
             persons,
             income_addback_categories,
+            use_budgeted_fallback,
         }
     }
 
@@ -38,8 +41,14 @@ impl<R: ActualReadClient + 'static> BudgetDetailsService<R> {
         month: YearMonth,
         budget_mode: BudgetMode,
     ) -> ABHelpersResult<(BudgetDetailsReport, Vec<String>)> {
-        let (budgeters_with_salary, categories) =
-            resolve_budget_data(self.reader.as_ref(), &self.persons, month, budget_mode).await?;
+        let (budgeters_with_salary, categories) = resolve_budget_data(
+            self.reader.as_ref(),
+            &self.persons,
+            month,
+            budget_mode,
+            self.use_budgeted_fallback,
+        )
+        .await?;
 
         let unmatched = unmatched_addback_categories(&self.income_addback_categories, &categories);
 

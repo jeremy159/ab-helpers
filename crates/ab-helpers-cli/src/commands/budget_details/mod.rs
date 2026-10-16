@@ -19,6 +19,11 @@ pub struct BudgetDetailsArgs {
     /// annual bills) or `actual` (target month only).
     #[arg(long, value_enum, default_value = "annualized")]
     pub budget_mode: BudgetModeArg,
+
+    /// When a category has no Actual goal/automation template, fall back to
+    /// its plain `budgeted` amount for the target month instead of showing $0.
+    #[arg(long)]
+    pub use_budgeted_fallback: bool,
 }
 
 pub async fn run(settings: Settings, args: BudgetDetailsArgs) -> Result<(), CliError> {
@@ -43,11 +48,17 @@ pub async fn run(settings: Settings, args: BudgetDetailsArgs) -> Result<(), CliE
         .budget_details
         .income_addback_categories
         .clone();
+    let use_budgeted_fallback = args.use_budgeted_fallback;
 
     settings
         .actual
         .with_session(move |client| async move {
-            let service = BudgetDetailsService::new(client, persons, income_addback_categories);
+            let service = BudgetDetailsService::new(
+                client,
+                persons,
+                income_addback_categories,
+                use_budgeted_fallback,
+            );
             let (report, unmatched_addback_categories) = service
                 .build_details(month, budget_mode)
                 .await

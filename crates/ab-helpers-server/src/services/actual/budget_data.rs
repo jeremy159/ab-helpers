@@ -16,6 +16,7 @@ pub(super) async fn resolve_budget_data<R: ActualReadClient>(
     persons: &[PersonSettings],
     month: YearMonth,
     budget_mode: BudgetMode,
+    use_budgeted_fallback: bool,
 ) -> ABHelpersResult<(Vec<Budgeter<ComputedSalary>>, Vec<ExpenseCategory>)> {
     let month_start = month.start_date();
     let month_end = month.end_date();
@@ -82,12 +83,19 @@ pub(super) async fn resolve_budget_data<R: ActualReadClient>(
             let projected_amount = resolve_expense_amount(
                 reader,
                 &category.id,
-                month,
                 month_str,
                 category.budgeted,
-                budget_mode,
+                use_budgeted_fallback,
             )
             .await;
+
+            tracing::debug!(
+                category_name = category.name,
+                category_id = category.id,
+                budgeted = category.budgeted,
+                resolved_cents = projected_amount.cents(),
+                "resolved expense category amount"
+            );
 
             categories.push(ExpenseCategory {
                 id: category.id.clone(),
@@ -114,42 +122,24 @@ pub(super) async fn resolve_budget_data<R: ActualReadClient>(
     Ok((budgeters_with_salary, categories))
 }
 
+/// Resolves a category's expected amount for the target month.
+///
+/// Actual's own goal/automation templates (`goal_def`) already smooth or
+/// annualize whatever they're configured to. When a category has no such template,
+/// we only have its plain `budgeted` figure for *this* month to go on; that's
+/// used only if `use_budgeted_fallback` is set.
 async fn resolve_expense_amount<R: ActualReadClient>(
     reader: &R,
     category_id: &str,
-    month: YearMonth,
     month_str: &str,
     budgeted: Option<i64>,
-    budget_mode: BudgetMode,
+    use_budgeted_fallback: bool,
 ) -> Money {
-    let Some(target_projection) = fetch_category_projection(reader, category_id, month_str).await
-    else {
-        return ExpenseCategory::resolve_projected_amount(None, budgeted);
-    };
-
-    if budget_mode == BudgetMode::Actual {
-        return ExpenseCategory::resolve_projected_amount(Some(target_projection), budgeted);
+    match fetch_category_projection(reader, category_id, month_str).await {
+        Some(target_projection) => Money::from_cents(target_projection),
+        None if use_budgeted_fallback => ExpenseCategory::resolve_projected_amount(None, budgeted),
+        None => Money::ZERO,
     }
-
-    let mut sum = target_projection;
-    let mut count = 1i64;
-
-    for other_month in 1..=12u32 {
-        if other_month == month.month() {
-            continue;
-        }
-        let Ok(other_month) = YearMonth::new(month.year(), other_month) else {
-            continue;
-        };
-        if let Some(projection) =
-            fetch_category_projection(reader, category_id, &other_month.to_string()).await
-        {
-            sum += projection;
-            count += 1;
-        }
-    }
-
-    Money::from_cents((sum as f64 / count as f64).round() as i64)
 }
 
 async fn fetch_category_projection<R: ActualReadClient>(

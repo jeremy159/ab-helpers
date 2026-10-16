@@ -1,4 +1,4 @@
-use crate::commands::budget_details::render::Line;
+use crate::commands::budget_details::render::{Line, dot_pad};
 use ab_helpers_domain::{BudgetDetails, DetailRow, Money, SubGroup, TopGroup};
 
 fn sample_details() -> BudgetDetails {
@@ -89,4 +89,37 @@ fn build_lines_formats_amount_and_percentage_for_rows_only() {
     let total = lines.iter().find(|l| l.label == "Total").unwrap();
     assert_eq!(total.amount.as_deref(), Some("$2 173.76"));
     assert!(total.percentage.is_none());
+}
+
+#[test]
+fn build_lines_strips_leading_emoji_from_group_and_row_names() {
+    let details = BudgetDetails {
+        groups: vec![TopGroup {
+            name: "🏠 Obligations".to_string(),
+            sub_groups: vec![SubGroup {
+                name: Some("🏡 Maison".to_string()),
+                rows: vec![DetailRow {
+                    name: "🎁 Cadeaux".to_string(),
+                    amount: Money::from_cents(2_500),
+                    percentage: 0.0021,
+                }],
+            }],
+        }],
+        total: Money::from_cents(2_500),
+    };
+
+    let lines = Line::flatten(&details);
+    let labels: Vec<&str> = lines.iter().map(|l| l.label.as_str()).collect();
+
+    assert_eq!(
+        labels,
+        vec!["Obligations", "    Maison", "        Cadeaux", "Total"]
+    );
+}
+
+#[test]
+fn dot_pad_fills_remaining_width_with_dots() {
+    assert_eq!(dot_pad("Hypothèque", 15), "Hypothèque.....");
+    assert_eq!(dot_pad("Exact width", 11), "Exact width");
+    assert_eq!(dot_pad("Too long already", 5), "Too long already");
 }

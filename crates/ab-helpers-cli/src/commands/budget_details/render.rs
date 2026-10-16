@@ -42,11 +42,15 @@ impl Line {
         let mut lines = Vec::new();
 
         for top_group in &details.groups {
-            lines.push(Line::header(top_group.name.clone()));
+            lines.push(Line::header(strip_leading_emoji(&top_group.name)));
 
             for sub_group in &top_group.sub_groups {
                 let row_indent = if let Some(name) = &sub_group.name {
-                    lines.push(Line::header(format!("{}{name}", " ".repeat(INDENT_STEP))));
+                    lines.push(Line::header(format!(
+                        "{}{}",
+                        " ".repeat(INDENT_STEP),
+                        strip_leading_emoji(name)
+                    )));
                     INDENT_STEP * 2
                 } else {
                     INDENT_STEP
@@ -54,7 +58,11 @@ impl Line {
 
                 for row in &sub_group.rows {
                     lines.push(Line::row(
-                        format!("{}{}", " ".repeat(row_indent), row.name),
+                        format!(
+                            "{}{}",
+                            " ".repeat(row_indent),
+                            strip_leading_emoji(&row.name)
+                        ),
                         row.amount.to_string(),
                         format!("{:.2}%", row.percentage * 100.0),
                     ));
@@ -70,20 +78,33 @@ impl Line {
     fn print(&self, label_width: usize, amount_width: usize, percentage_width: usize) {
         match &self.amount {
             None => println!("{}", self.label),
-            Some(amount) => match &self.percentage {
-                Some(percentage) => {
-                    let label = &self.label;
-                    println!(
-                        "{label:label_width$}  {amount:>amount_width$}  {percentage:>percentage_width$}"
-                    )
+            Some(amount) => {
+                let label = dot_pad(&self.label, label_width);
+                match &self.percentage {
+                    Some(percentage) => {
+                        println!(
+                            "{label}  {amount:>amount_width$}  {percentage:>percentage_width$}"
+                        )
+                    }
+                    None => println!("{label}  {amount:>amount_width$}"),
                 }
-                None => {
-                    let label = &self.label;
-                    println!("{label:label_width$}  {amount:>amount_width$}")
-                }
-            },
+            }
         }
     }
+}
+
+pub(crate) fn dot_pad(label: &str, width: usize) -> String {
+    let len = label.chars().count();
+    format!("{label}{}", ".".repeat(width.saturating_sub(len)))
+}
+
+fn strip_leading_emoji(name: &str) -> String {
+    let trimmed = name.trim();
+    let end = trimmed
+        .char_indices()
+        .find(|(_, c)| c.is_alphanumeric())
+        .map_or(trimmed.len(), |(i, _)| i);
+    trimmed[end..].trim().to_string()
 }
 
 pub(crate) fn print_details(month: YearMonth, report: &BudgetDetailsReport) {
@@ -104,6 +125,8 @@ pub(crate) fn print_details(month: YearMonth, report: &BudgetDetailsReport) {
     let mut table_lines = Line::flatten(details);
     table_lines.pop(); // Remove Total row.
     lines.extend(table_lines);
+
+    let second_separator_index = lines.len();
 
     lines.push(Line::row(
         "Total des dépenses".to_string(),
@@ -134,10 +157,12 @@ pub(crate) fn print_details(month: YearMonth, report: &BudgetDetailsReport) {
         .max()
         .unwrap_or(0);
 
+    let rule = "-".repeat(label_width + 2 + amount_width + 2 + percentage_width);
+
     println!("== Budget details ({month}) ==");
     for (i, line) in lines.iter().enumerate() {
-        if i == separator_index {
-            println!("{}  {}", " ".repeat(label_width), "-".repeat(amount_width));
+        if i == separator_index || i == second_separator_index {
+            println!("{rule}");
         }
         line.print(label_width, amount_width, percentage_width);
     }

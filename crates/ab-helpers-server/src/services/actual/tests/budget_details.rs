@@ -129,7 +129,12 @@ fn make_client() -> Arc<FakeClient> {
 #[tokio::test]
 async fn build_details_includes_addback_row_and_adjusts_income_denominator() {
     let client = make_client();
-    let svc = BudgetDetailsService::new(client, person_settings(), vec!["Assurance Santé".into()]);
+    let svc = BudgetDetailsService::new(
+        client,
+        person_settings(),
+        vec!["Assurance Santé".into()],
+        true,
+    );
 
     let (report, _unmatched) = svc
         .build_details(month(), BudgetMode::Actual)
@@ -181,6 +186,7 @@ async fn build_details_returns_configured_addback_categories_that_matched_nothin
         client,
         person_settings(),
         vec!["Assurance Santé".into(), "Assurance Vie".into()],
+        true,
     );
 
     let (_report, unmatched) = svc

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use ab_helpers_domain::{BudgetMode, BudgeterExt, YearMonth};
@@ -9,10 +10,14 @@ use crate::config::PersonSettings;
 
 use super::super::budget_summary::BudgetSummaryService;
 
+#[derive(Default)]
 struct FakeClient {
     payees: Vec<Payee>,
     payee_totals: Vec<PayeeTotal>,
     category_groups: Vec<CategoryGroup>,
+    /// category_id -> goal_def dry-run projection, as Actual would return it.
+    /// A category absent from this map has no goal_def (fetch returns None).
+    category_projections: HashMap<String, i64>,
 }
 
 #[async_trait]
@@ -59,10 +64,10 @@ impl actual::ActualReadRequests for FakeClient {
     }
     async fn get_category_projection(
         &self,
-        _category_id: &str,
+        category_id: &str,
         _month: &str,
     ) -> ActualResult<Option<i64>> {
-        Ok(None)
+        Ok(self.category_projections.get(category_id).copied())
     }
 }
 
@@ -123,13 +128,19 @@ fn make_client() -> Arc<FakeClient> {
                 make_category("cat-common", "Loyer", 20_000),
             ],
         )],
+        ..Default::default()
     })
 }
 
 #[tokio::test]
 async fn build_excludes_addback_category_from_common_and_individual_totals() {
     let client = make_client();
-    let svc = BudgetSummaryService::new(client, person_settings(), vec!["Assurance Santé".into()]);
+    let svc = BudgetSummaryService::new(
+        client,
+        person_settings(),
+        vec!["Assurance Santé".into()],
+        true,
+    );
 
     let (summary, _unmatched) = svc.build(month(), BudgetMode::Actual).await.unwrap();
 
@@ -156,6 +167,7 @@ async fn build_returns_configured_addback_categories_that_matched_nothing() {
         client,
         person_settings(),
         vec!["Assurance Santé".into(), "Assurance Vie".into()],
+        true,
     );
 
     let (_summary, unmatched) = svc.build(month(), BudgetMode::Actual).await.unwrap();
@@ -184,13 +196,77 @@ async fn build_addback_match_is_case_insensitive_but_exact() {
                 make_category("cat-dentaire", "Assurance Santé Dentaire", 5_000),
             ],
         )],
+        ..Default::default()
     });
-    let svc = BudgetSummaryService::new(client, person_settings(), vec!["Assurance Santé".into()]);
+    let svc = BudgetSummaryService::new(
+        client,
+        person_settings(),
+        vec!["Assurance Santé".into()],
+        true,
+    );
 
     let (summary, _unmatched) = svc.build(month(), BudgetMode::Actual).await.unwrap();
 
     assert_eq!(
         summary.total.common_expenses(),
         ab_helpers_domain::Money::from_cents(5_000)
+    );
+}
+
+#[tokio::test]
+async fn goal_def_projection_is_used_as_is_regardless_of_budget_mode() {
+    // Actual's own goal/automation templates already smooth or annualize
+    // whatever they're configured to; our code must trust that dry-run
+    // projection as-is instead of re-averaging it across other months.
+    let client = Arc::new(FakeClient {
+        payees: vec![make_payee("payee-alice", "Alice Salary")],
+        payee_totals: vec![PayeeTotal {
+            payee_id: "payee-alice".into(),
+            total: 500_000,
+        }],
+        category_groups: vec![make_group(
+            "group-1",
+            "Obligations - Maison",
+            vec![make_category("cat-garderie", "Garderie", 999_999)],
+        )],
+        category_projections: HashMap::from([("cat-garderie".to_string(), 262_167)]),
+    });
+    let svc = BudgetSummaryService::new(client, person_settings(), vec![], false);
+
+    let (actual_summary, _) = svc.build(month(), BudgetMode::Actual).await.unwrap();
+    let (annualized_summary, _) = svc.build(month(), BudgetMode::Annualized).await.unwrap();
+
+    assert_eq!(
+        actual_summary.total.common_expenses(),
+        ab_helpers_domain::Money::from_cents(262_167)
+    );
+    assert_eq!(
+        annualized_summary.total.common_expenses(),
+        ab_helpers_domain::Money::from_cents(262_167)
+    );
+}
+
+#[tokio::test]
+async fn category_without_projection_defaults_to_zero_when_fallback_disabled() {
+    let client = Arc::new(FakeClient {
+        payees: vec![make_payee("payee-alice", "Alice Salary")],
+        payee_totals: vec![PayeeTotal {
+            payee_id: "payee-alice".into(),
+            total: 500_000,
+        }],
+        category_groups: vec![make_group(
+            "group-1",
+            "Obligations - Maison",
+            vec![make_category("cat-no-template", "Loyer", 20_000)],
+        )],
+        ..Default::default()
+    });
+    let svc = BudgetSummaryService::new(client, person_settings(), vec![], false);
+
+    let (summary, _) = svc.build(month(), BudgetMode::Actual).await.unwrap();
+
+    assert_eq!(
+        summary.total.common_expenses(),
+        ab_helpers_domain::Money::ZERO
     );
 }

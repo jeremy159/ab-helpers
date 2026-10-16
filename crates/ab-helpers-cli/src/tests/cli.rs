@@ -44,6 +44,7 @@ fn budget_details_parses_month_and_budget_mode() {
         Commands::WithSettings(SettingsCommand::BudgetDetails(BudgetDetailsArgs {
             month,
             budget_mode,
+            ..
         })) => {
             assert_eq!(month.as_deref(), Some("2026-03"));
             assert!(matches!(
