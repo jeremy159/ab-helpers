@@ -139,10 +139,8 @@ pub(crate) fn needs_npm_install(dir: &Path) -> bool {
         return true;
     }
 
-    match std::fs::read_to_string(dir.join(LOCKFILE_HASH_STAMP)) {
-        Ok(stamp) => stamp.trim() != current_lockfile_hash(),
-        Err(_) => true,
-    }
+    std::fs::read_to_string(dir.join(LOCKFILE_HASH_STAMP))
+        .map_or(true, |stamp| stamp.trim() != current_lockfile_hash())
 }
 
 /// Writes the current embedded lockfile's hash to the stamp file, recording

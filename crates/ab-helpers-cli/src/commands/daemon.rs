@@ -117,16 +117,12 @@ fn load_state(data_dir: &Path) -> DaemonState {
         }
     };
 
-    match serde_json::from_str(&raw) {
-        Ok(state) => {
-            tracing::trace!("daemon state loaded successfully");
-            state
-        }
-        Err(err) => {
+    serde_json::from_str(&raw)
+        .inspect(|_| tracing::trace!("daemon state loaded successfully"))
+        .unwrap_or_else(|err| {
             tracing::warn!(?err, path = %path.display(), "daemon state file is corrupt, starting fresh");
             DaemonState::default()
-        }
-    }
+        })
 }
 
 fn save_state(data_dir: &Path, state: &DaemonState) {
@@ -169,26 +165,29 @@ fn tick_was_missed(cron_5field: &str, last_run: DateTime<Utc>, tz: Tz) -> bool {
 /// Logs the next time a job matching `cron_6field` will fire, in a
 /// human-readable, timezone-aware format.
 fn log_next_run(cron_6field: &str, tz: Tz, kind: &str) {
-    match Schedule::from_str(cron_6field) {
-        Ok(schedule) => match schedule.upcoming(tz).next() {
-            Some(next_run) => {
-                tracing::info!(
-                    kind,
-                    next_run = %next_run.format("%Y-%m-%d %H:%M:%S %Z"),
-                    "next {kind} interest run scheduled"
-                );
-            }
-            None => tracing::warn!(kind, "could not compute next scheduled run"),
-        },
+    let schedule = match Schedule::from_str(cron_6field) {
+        Ok(schedule) => schedule,
         Err(err) => {
             tracing::warn!(
                 ?err,
                 expr = cron_6field,
                 kind,
                 "failed to parse cron expression"
-            )
+            );
+            return;
         }
-    }
+    };
+
+    let Some(next_run) = schedule.upcoming(tz).next() else {
+        tracing::warn!(kind, "could not compute next scheduled run");
+        return;
+    };
+
+    tracing::info!(
+        kind,
+        next_run = %next_run.format("%Y-%m-%d %H:%M:%S %Z"),
+        "next {kind} interest run scheduled"
+    );
 }
 
 pub async fn run(settings: Settings) -> Result<(), CliError> {

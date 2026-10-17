@@ -60,6 +60,7 @@ pub(super) async fn resolve_budget_data<R: ActualReadClient>(
             .iter()
             .map(|id| (*id).to_owned())
             .collect();
+
         reader
             .get_payee_totals(&fallback_payee_ids, month_start, month_end)
             .await?
@@ -152,18 +153,19 @@ async fn fetch_category_projection<R: ActualReadClient>(
     category_id: &str,
     month: &str,
 ) -> Option<i64> {
-    match reader.get_category_projection(category_id, month).await {
-        Ok(projection) => projection,
-        Err(error) => {
+    reader
+        .get_category_projection(category_id, month)
+        .await
+        .inspect_err(|error| {
             tracing::warn!(
                 category_id,
                 month,
                 ?error,
                 "get-category-projection failed; falling back to budgeted"
             );
-            None
-        }
-    }
+        })
+        .ok()
+        .flatten()
 }
 
 fn resolve_payee_id(all_payees: &[Payee], payee_name: &str) -> ABHelpersResult<String> {
